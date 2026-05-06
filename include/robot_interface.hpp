@@ -34,7 +34,8 @@ class RobotInterface {
     };
     struct MotorsCfg{
         int master_id_offset_;
-        std::string motor_type_, motor_interface_type_;
+        std::vector<std::string> motor_type_;
+        std::string motor_interface_type_;
         std::vector<std::string> motor_interface_;
         std::vector<long int> motor_id_, motor_model_, motor_num_;
         std::vector<double> motor_zero_offset_;

@@ -65,13 +65,16 @@ RobotInterface::RobotInterface(const std::string& config_file) {
                 close_chain_joint_idx_.push_back(std::distance(robot_cfg_->urdf2motor_.begin(), it));
             }
         }
+        if (robot_node["type"]) {
+            ankle_decouple_ = Decouple::create(robot_node["type"].as<std::string>());
+        } else {
+            ankle_decouple_ = nullptr;
+        }
     } else {
         throw std::runtime_error("Robot configuration not found in " + config_file);
     }
 
     thread_pool_ = std::make_unique<ThreadPool>(motors_cfg_->motor_interface_.size());
-
-    ankle_decouple_ = std::make_shared<Decouple>();
 
     joint_q_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
     joint_vel_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
@@ -110,7 +113,7 @@ void RobotInterface::apply_action(std::vector<float> action) {
             }
         });
 
-        if (!close_chain_joint_idx_.empty()){
+        if (!close_chain_joint_idx_.empty() && ankle_decouple_){
             Eigen::VectorXd q(2), vel(2), tau(2);
             int idx1 = close_chain_joint_idx_[0];
             int idx2 = close_chain_joint_idx_[1];
@@ -197,7 +200,7 @@ void RobotInterface::apply_action(std::vector<float> action) {
 }
 
 void RobotInterface::reset_joints(std::vector<double> joint_default_angle) {
-    if (!close_chain_joint_idx_.empty()){
+    if (!close_chain_joint_idx_.empty() && ankle_decouple_){
         Eigen::VectorXd q(2), vel(2), tau(2);
         int idx1 = close_chain_joint_idx_[0];
         int idx2 = close_chain_joint_idx_[1];
@@ -245,7 +248,7 @@ void RobotInterface::refresh_joints() {
             joint_tau_[motor2urdf_[idx]] = motor->get_motor_current() * robot_cfg_->motor_sign_[idx];
         });
 
-        if (!close_chain_joint_idx_.empty()) {
+        if (!close_chain_joint_idx_.empty() && ankle_decouple_) {
             Eigen::VectorXd q(2), vel(2), tau(2);
             int idx1 = close_chain_joint_idx_[0];
             int idx2 = close_chain_joint_idx_[1];

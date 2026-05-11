@@ -35,7 +35,7 @@ RobotInterface::RobotInterface(const std::string& config_file) {
         YAML::Node robot_node = config["robot"];
         if (robot_node["kp"]) robot_cfg_->kp_ = robot_node["kp"].as<std::vector<double>>();
         if (robot_node["kd"]) robot_cfg_->kd_ = robot_node["kd"].as<std::vector<double>>();
-        if (robot_node["close_chain_motor_id"]) robot_cfg_->close_chain_motor_id_ = robot_node["close_chain_motor_id"].as<std::vector<long int>>();
+        if (robot_node["close_chain_motor_idx"]) robot_cfg_->close_chain_motor_idx_ = robot_node["close_chain_motor_idx"].as<std::vector<long int>>();
         if (robot_node["motor_sign"]) robot_cfg_->motor_sign_ = robot_node["motor_sign"].as<std::vector<long int>>();
         if (robot_node["urdf2motor"]) robot_cfg_->urdf2motor_ = robot_node["urdf2motor"].as<std::vector<long int>>();
         motor2urdf_ = std::vector<int>(motors_cfg_->motor_id_.size(), -1);
@@ -53,13 +53,7 @@ RobotInterface::RobotInterface(const std::string& config_file) {
                 extrinsic_q_inv_ = q_R.inverse();           // we need R_inv for quaternion transform
             }
         }
-        for (auto id : robot_cfg_->close_chain_motor_id_) {
-            auto it = std::find(motors_cfg_->motor_id_.begin(), motors_cfg_->motor_id_.end(), id);
-            if (it != motors_cfg_->motor_id_.end()) {
-                close_chain_motor_idx_.push_back(std::distance(motors_cfg_->motor_id_.begin(), it));
-            }
-        }
-        for (auto idx : close_chain_motor_idx_) {
+        for (auto idx : robot_cfg_->close_chain_motor_idx_) {
             auto it = std::find(robot_cfg_->urdf2motor_.begin(), robot_cfg_->urdf2motor_.end(), idx);
             if (it != robot_cfg_->urdf2motor_.end()) {
                 close_chain_joint_idx_.push_back(std::distance(robot_cfg_->urdf2motor_.begin(), it));
@@ -127,8 +121,8 @@ void RobotInterface::apply_action(std::vector<float> action) {
             joint_vel_[idx2] = vel[1];
             joint_tau_[idx1] = tau[0];
             joint_tau_[idx2] = tau[1];
-            tau << robot_cfg_->kp_[close_chain_motor_idx_[0]] * (action[idx1] - q[0]) + robot_cfg_->kd_[close_chain_motor_idx_[0]] * (0.0f - vel[0]),
-            robot_cfg_->kp_[close_chain_motor_idx_[1]] * (action[idx2] - q[1]) + robot_cfg_->kd_[close_chain_motor_idx_[1]] * (0.0f - vel[1]);
+            tau << robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[0]] * (action[idx1] - q[0]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[0]] * (0.0f - vel[0]),
+            robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[1]] * (action[idx2] - q[1]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[1]] * (0.0f - vel[1]);
             ankle_decouple_->get_decoupleQVT(q, vel, tau, true);
             action[idx1] = tau[0];
             action[idx2] = tau[1];
@@ -145,8 +139,8 @@ void RobotInterface::apply_action(std::vector<float> action) {
             joint_vel_[idx2] = vel[1];
             joint_tau_[idx1] = tau[0];
             joint_tau_[idx2] = tau[1];
-            tau << robot_cfg_->kp_[close_chain_motor_idx_[2]] * (action[idx1] - q[0]) + robot_cfg_->kd_[close_chain_motor_idx_[2]] * (0.0f - vel[0]),
-            robot_cfg_->kp_[close_chain_motor_idx_[3]] * (action[idx2] - q[1]) + robot_cfg_->kd_[close_chain_motor_idx_[3]] * (0.0f - vel[1]);
+            tau << robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[2]] * (action[idx1] - q[0]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[2]] * (0.0f - vel[0]),
+            robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[3]] * (action[idx2] - q[1]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[3]] * (0.0f - vel[1]);
             ankle_decouple_->get_decoupleQVT(q, vel, tau, false);
             action[idx1] = tau[0];
             action[idx2] = tau[1];
@@ -175,7 +169,7 @@ void RobotInterface::apply_action(std::vector<float> action) {
                     const size_t slot = (motor_id > 0 && motor_id <= 8) ? static_cast<size_t>(motor_id - 1) : j;
                     if (slot >= 8) continue;
                     const float signed_target = motor_target_[idx] * robot_cfg_->motor_sign_[idx];
-                    if (std::find(close_chain_motor_idx_.begin(), close_chain_motor_idx_.end(), idx) == close_chain_motor_idx_.end()) {
+                    if (std::find(robot_cfg_->close_chain_motor_idx_.begin(), robot_cfg_->close_chain_motor_idx_.end(), idx) == robot_cfg_->close_chain_motor_idx_.end()) {
                         pos[slot] = signed_target;
                         kp[slot] = robot_cfg_->kp_[idx];
                         kd[slot] = robot_cfg_->kd_[idx];
@@ -190,7 +184,7 @@ void RobotInterface::apply_action(std::vector<float> action) {
         thread_pool_->run_parallel(tasks);
     } else {
         exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
-            if (std::find(close_chain_motor_idx_.begin(), close_chain_motor_idx_.end(), idx) == close_chain_motor_idx_.end()){
+            if (std::find(robot_cfg_->close_chain_motor_idx_.begin(), robot_cfg_->close_chain_motor_idx_.end(), idx) == robot_cfg_->close_chain_motor_idx_.end()){
                 motor->motor_mit_cmd(motor_target_[idx] * robot_cfg_->motor_sign_[idx], 0.0f, robot_cfg_->kp_[idx], robot_cfg_->kd_[idx], 0.0f);
             } else {
                 motor->motor_mit_cmd(0.0f, 0.0f, 0.0f, 0.0f, motor_target_[idx] * robot_cfg_->motor_sign_[idx]);

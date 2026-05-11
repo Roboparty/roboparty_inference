@@ -41,7 +41,7 @@ class RobotInterface {
         std::vector<double> motor_zero_offset_;
     };
     struct RobotCfg{
-        std::vector<long int> close_chain_motor_id_, motor_sign_, urdf2motor_;
+        std::vector<long int> close_chain_motor_idx_, motor_sign_, urdf2motor_;
         std::vector<double> kp_, kd_, extrinsic_R_;
     };
 
@@ -115,7 +115,7 @@ class RobotInterface {
 
     std::mutex motors_mutex_, joint_mutex_;
     std::vector<float> joint_q_, joint_vel_, joint_tau_, motor_target_;
-    std::vector<int> close_chain_motor_idx_, close_chain_joint_idx_, motor2urdf_;
+    std::vector<int> close_chain_joint_idx_, motor2urdf_;
 
     void setup_motors();
     void setup_imu();

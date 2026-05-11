@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(roboto_inference)
+project(inference)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native")
 set(CMAKE_CXX_COMPILER_LAUNCHER ccache)

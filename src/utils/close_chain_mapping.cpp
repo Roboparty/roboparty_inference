@@ -1,15 +1,15 @@
 #include "close_chain_mapping.hpp"
-#include "decouple_atom01.hpp"
+#include "decouple_rpo.hpp"
 
 std::shared_ptr<Decouple> Decouple::create(const std::string &type)
 {
-    if (type == "atom01")
+    if (type == "rpo")
     {
-        return std::make_shared<DecoupleAtom01>();
+        return std::make_shared<DecoupleRPO>();
     }
     else
     {
         throw std::runtime_error("Unknown close_chain type: " + type +
-                                 ". Supported types: atom01");
+                                 ". Supported types: rpo");
     }
 }

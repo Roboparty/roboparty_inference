@@ -20,6 +20,21 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Version check (package.xml vs changelog)
+        run: |
+          PKG_XML_VERSION=$(grep -oP '<version>\K[^<]+' package.xml)
+          CHANGELOG_VERSION=$(head -1 debian/changelog | grep -oP '\((.*?)\)' | tr -d '()' | cut -d'-' -f1)
+
+          echo "package.xml version: $PKG_XML_VERSION"
+          echo "changelog version:  $CHANGELOG_VERSION"
+
+          if [ "$PKG_XML_VERSION" != "$CHANGELOG_VERSION" ]; then
+            echo "::error::Version mismatch! package.xml=$PKG_XML_VERSION, changelog=$CHANGELOG_VERSION"
+            exit 1
+          fi
+
+          echo "✅ Version check passed: $PKG_XML_VERSION"
+
       - name: Setup ROS 2 Humble
         uses: ros-tooling/setup-ros@v0.7
         with:

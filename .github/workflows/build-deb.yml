@@ -1,0 +1,87 @@
+name: Build RoboParty Inference Deb Package
+
+on:
+  push:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            os: ubuntu-22.04
+          - arch: arm64
+            # os: ubuntu-22.04-arm
+            os: [self-hosted, linux, ARM64]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup ROS 2 Humble
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: humble
+
+      - name: Cache APT packages
+        uses: actions/cache@v4
+        with:
+          path: apt-cache
+          key: ${{ runner.os }}-${{ matrix.arch }}-apt-${{ hashFiles('.github/workflows/build-deb.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-apt-
+
+      - name: Install build dependencies
+        run: |
+          mkdir -p apt-cache/partial
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            -o dir::cache::archives="$PWD/apt-cache" \
+            build-essential cmake ccache dpkg-dev debhelper devscripts \
+            git wget python3-pip python3-vcstool \
+            libboost-all-dev libspdlog-dev libfmt-dev python3-dev pybind11-dev gh
+          
+          # Fix permissions for cache saving
+          sudo chown -R $(id -u):$(id -g) apt-cache
+
+      - name: Download RoboParty Dependencies
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p debs
+          cd debs
+          
+          echo ">>> Downloading latest ${{ matrix.arch }} releases..."
+          
+          gh release download --repo Roboparty/roboparty_base   --pattern "*all.deb" || echo "Failed roboparty_base"
+          gh release download --repo Roboparty/roboparty_imu    --pattern "*${{ matrix.arch }}.deb" || echo "Failed roboparty_imu"
+          gh release download --repo Roboparty/roboparty_motors --pattern "*${{ matrix.arch }}.deb" || echo "Failed roboparty_motors"
+          
+          ls -lh
+
+      - name: Install RoboParty Dependencies
+        run: |
+          cd debs && sudo dpkg -i ./*.deb || sudo apt-get install -f -y
+
+      - name: Build deb package
+        run: |
+          # Source ROS 2 explicitly to be safe
+          . /opt/ros/humble/setup.sh
+          dpkg-buildpackage -us -uc -b
+          mv ../*.deb .
+          VERSION=$(dpkg-parsechangelog -S Version | cut -d'-' -f1 || echo "unknown")
+          echo "PKG_VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: roboparty-inference-v${{ env.PKG_VERSION }}-${{ matrix.arch }}
+          path: "*.deb"
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.deb"

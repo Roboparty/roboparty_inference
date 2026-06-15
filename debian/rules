@@ -1,0 +1,63 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = optimize=-lto
+export AMENT_PREFIX_PATH=/opt/ros/humble
+export CMAKE_PREFIX_PATH=/opt/roboparty:/opt/ros/humble
+export PYTHONPATH=/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages
+export LD_LIBRARY_PATH := /opt/ros/humble/lib:$(LD_LIBRARY_PATH)
+export CCACHE_DISABLE = 1
+
+PKG_NAME = roboparty-inference
+
+%:
+	dh $@ --buildsystem=cmake
+
+override_dh_auto_configure:
+	# Extract thirdparty dependencies
+	if [ ! -d "thirdparty/onnxruntime-linux-x64-1.21.0" ] && [ -f "thirdparty/onnxruntime-linux-x64-1.21.0.tgz" ]; then \
+		mkdir -p "thirdparty/onnxruntime-linux-x64-1.21.0" && tar xzf "thirdparty/onnxruntime-linux-x64-1.21.0.tgz" -C "thirdparty/onnxruntime-linux-x64-1.21.0" --strip-components=1; \
+	fi
+	if [ ! -d "thirdparty/onnxruntime-linux-aarch64-1.21.0" ] && [ -f "thirdparty/onnxruntime-linux-aarch64-1.21.0.tgz" ]; then \
+		mkdir -p "thirdparty/onnxruntime-linux-aarch64-1.21.0" && tar xzf "thirdparty/onnxruntime-linux-aarch64-1.21.0.tgz" -C "thirdparty/onnxruntime-linux-aarch64-1.21.0" --strip-components=1; \
+	fi
+	if [ ! -d "thirdparty/yaml-cpp-0.9.0" ] && [ -f "thirdparty/yaml-cpp-0.9.0.tar.gz" ]; then \
+		mkdir -p "thirdparty/yaml-cpp-0.9.0" && tar xzf "thirdparty/yaml-cpp-0.9.0.tar.gz" -C "thirdparty/yaml-cpp-0.9.0" --strip-components=1; \
+	fi
+	
+	dh_auto_configure -- \
+		-DCMAKE_INSTALL_PREFIX=/opt/roboparty \
+		-DCMAKE_PREFIX_PATH="/opt/roboparty;/opt/ros/humble" \
+		-DCMAKE_BUILD_TYPE=Release
+
+override_dh_install:
+	dh_install
+	
+	# models
+	if [ -d "models" ]; then \
+		install -d debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/models; \
+		cp models/*.onnx debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/models/ 2>/dev/null || true; \
+		chmod 644 debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/models/*.onnx 2>/dev/null || true; \
+	fi
+	
+	# motions
+	if [ -d "motions" ]; then \
+		install -d debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/motions; \
+		cp motions/*.npz debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/motions/ 2>/dev/null || true; \
+		chmod 644 debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/motions/*.npz 2>/dev/null || true; \
+	fi
+	
+	# config reorganization
+	if [ -d "debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config" ]; then \
+		mkdir -p debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/inference debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/robot; \
+		mv debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/inference*.yaml debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/inference/ 2>/dev/null || true; \
+		mv debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/robot*.yaml debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/robot/ 2>/dev/null || true; \
+	fi
+	
+	# Fix onnxruntime symlinks
+	if [ -f "debian/$(PKG_NAME)/opt/roboparty/lib/libonnxruntime.so.1.21.0" ]; then \
+		ln -sf libonnxruntime.so.1.21.0 debian/$(PKG_NAME)/opt/roboparty/lib/libonnxruntime.so.1; \
+		ln -sf libonnxruntime.so.1.21.0 debian/$(PKG_NAME)/opt/roboparty/lib/libonnxruntime.so; \
+	fi
+	
+	# Remove helper scripts
+	rm -f debian/$(PKG_NAME)/opt/roboparty/bin/mat2npz debian/$(PKG_NAME)/opt/roboparty/bin/npy2mat debian/$(PKG_NAME)/opt/roboparty/bin/npz2mat

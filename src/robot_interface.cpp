@@ -62,6 +62,8 @@ RobotInterface::RobotInterface(const std::string& config_file) {
                 close_chain_joint_idx_.push_back(std::distance(robot_cfg_->urdf2motor_.begin(), it));
             }
         }
+        cached_ankle_action_.resize(close_chain_joint_idx_.size(), 0.0f);
+        last_ankle_joint_target_.resize(close_chain_joint_idx_.size(), 0.0f);
         if (robot_node["type"]) {
             ankle_decouple_ = Decouple::create(robot_node["type"].as<std::string>());
         } else {
@@ -111,6 +113,13 @@ void RobotInterface::apply_action(std::vector<float> action) {
         });
 
         if (!close_chain_joint_idx_.empty() && ankle_decouple_){
+            bool refresh = false;
+            for (size_t i = 0; i < close_chain_joint_idx_.size(); ++i) {
+                if (action[close_chain_joint_idx_[i]] != last_ankle_joint_target_[i]) {
+                    refresh = true;
+                }
+                last_ankle_joint_target_[i] = action[close_chain_joint_idx_[i]];
+            }
             Eigen::VectorXd q(2), vel(2), tau(2);
             int idx1 = close_chain_joint_idx_[0];
             int idx2 = close_chain_joint_idx_[1];
@@ -124,11 +133,18 @@ void RobotInterface::apply_action(std::vector<float> action) {
             joint_vel_[idx2] = vel[1];
             joint_tau_[idx1] = tau[0];
             joint_tau_[idx2] = tau[1];
-            tau << robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[0]] * (action[idx1] - q[0]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[0]] * (0.0f - vel[0]),
-            robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[1]] * (action[idx2] - q[1]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[1]] * (0.0f - vel[1]);
-            ankle_decouple_->get_decoupleQVT(q, vel, tau, true);
-            action[idx1] = tau[0];
-            action[idx2] = tau[1];
+            if (refresh) {
+                tau << robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[0]] * (action[idx1] - q[0]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[0]] * (0.0f - vel[0]),
+                robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[1]] * (action[idx2] - q[1]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[1]] * (0.0f - vel[1]);
+                ankle_decouple_->get_decoupleQVT(q, vel, tau, true);
+                action[idx1] = static_cast<float>(q[0] + (tau[0] + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[0]] * vel[0]) / robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[0]]);
+                action[idx2] = static_cast<float>(q[1] + (tau[1] + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[1]] * vel[1]) / robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[1]]);
+                cached_ankle_action_[0] = action[idx1];
+                cached_ankle_action_[1] = action[idx2];
+            } else {
+                action[idx1] = cached_ankle_action_[0];
+                action[idx2] = cached_ankle_action_[1];
+            }
             
             idx1 = close_chain_joint_idx_[2];
             idx2 = close_chain_joint_idx_[3];
@@ -142,11 +158,18 @@ void RobotInterface::apply_action(std::vector<float> action) {
             joint_vel_[idx2] = vel[1];
             joint_tau_[idx1] = tau[0];
             joint_tau_[idx2] = tau[1];
-            tau << robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[2]] * (action[idx1] - q[0]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[2]] * (0.0f - vel[0]),
-            robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[3]] * (action[idx2] - q[1]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[3]] * (0.0f - vel[1]);
-            ankle_decouple_->get_decoupleQVT(q, vel, tau, false);
-            action[idx1] = tau[0];
-            action[idx2] = tau[1];
+            if (refresh) {
+                tau << robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[2]] * (action[idx1] - q[0]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[2]] * (0.0f - vel[0]),
+                robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[3]] * (action[idx2] - q[1]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[3]] * (0.0f - vel[1]);
+                ankle_decouple_->get_decoupleQVT(q, vel, tau, false);
+                action[idx1] = static_cast<float>(q[0] + (tau[0] + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[2]] * vel[0]) / robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[2]]);
+                action[idx2] = static_cast<float>(q[1] + (tau[1] + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[3]] * vel[1]) / robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[3]]);
+                cached_ankle_action_[2] = action[idx1];
+                cached_ankle_action_[3] = action[idx2];
+            } else {
+                action[idx1] = cached_ankle_action_[2];
+                action[idx2] = cached_ankle_action_[3];
+            }
         }
     }
 
@@ -157,7 +180,7 @@ void RobotInterface::apply_action(std::vector<float> action) {
         }
     }
 
-    motors_mit_cmd(1.0f, 1.0f, true);
+    motors_mit_cmd(1.0f, 1.0f);
 }
 
 void RobotInterface::reset_joints(std::vector<double> joint_default_angle) {
@@ -262,7 +285,7 @@ void RobotInterface::deinit_motors() {
     is_init_.store(false);
 }
 
-void RobotInterface::motors_mit_cmd(float kp_scale, float kd_scale, bool close_chain_tau) {
+void RobotInterface::motors_mit_cmd(float kp_scale, float kd_scale) {
     std::unique_lock<std::mutex> lock(motors_mutex_);
     std::vector<std::function<void()>> tasks;
     size_t count = 0;
@@ -270,34 +293,25 @@ void RobotInterface::motors_mit_cmd(float kp_scale, float kd_scale, bool close_c
         const size_t num_motors = motors_cfg_->motor_num_[bus];
         const size_t start_count = count;
         if (motors_cfg_->motor_interface_type_[bus] == "canfd") {
-            tasks.push_back([this, start_count, num_motors, kp_scale, kd_scale, close_chain_tau]() {
+            tasks.push_back([this, start_count, num_motors, kp_scale, kd_scale]() {
                 float pos[8] = {}, vel[8] = {}, kp[8] = {}, kd[8] = {}, tau[8] = {};
                 for (size_t j = 0; j < num_motors; ++j) {
                     const size_t idx = start_count + j;
                     const long int motor_id = motors_cfg_->motor_id_[idx];
                     const size_t slot = (motor_id > 0 && motor_id <= 8) ? static_cast<size_t>(motor_id - 1) : j;
                     if (slot >= 8) continue;
-                    const float signed_target = motor_target_[idx] * robot_cfg_->motor_sign_[idx];
-                    if (close_chain_tau && std::find(robot_cfg_->close_chain_motor_idx_.begin(), robot_cfg_->close_chain_motor_idx_.end(), idx) != robot_cfg_->close_chain_motor_idx_.end()) {
-                        tau[slot] = signed_target;
-                    } else {
-                        pos[slot] = signed_target;
-                        kp[slot] = robot_cfg_->kp_[idx] * kp_scale;
-                        kd[slot] = robot_cfg_->kd_[idx] * kd_scale;
-                    }
+                    pos[slot] = motor_target_[idx] * robot_cfg_->motor_sign_[idx];
+                    kp[slot] = robot_cfg_->kp_[idx] * kp_scale;
+                    kd[slot] = robot_cfg_->kd_[idx] * kd_scale;
                 }
                 motors_[start_count]->motor_mit_cmd(pos, vel, kp, kd, tau);
             });
         } else {
-            tasks.push_back([this, start_count, num_motors, kp_scale, kd_scale, close_chain_tau]() {
+            tasks.push_back([this, start_count, num_motors, kp_scale, kd_scale]() {
                 for (size_t j = 0; j < num_motors; ++j) {
                     const size_t idx = start_count + j;
-                    const float signed_target = motor_target_[idx] * robot_cfg_->motor_sign_[idx];
-                    if (close_chain_tau && std::find(robot_cfg_->close_chain_motor_idx_.begin(), robot_cfg_->close_chain_motor_idx_.end(), idx) != robot_cfg_->close_chain_motor_idx_.end()) {
-                        motors_[idx]->motor_mit_cmd(0.0f, 0.0f, 0.0f, 0.0f, signed_target);
-                    } else {
-                        motors_[idx]->motor_mit_cmd(signed_target, 0.0f, robot_cfg_->kp_[idx] * kp_scale, robot_cfg_->kd_[idx] * kd_scale, 0.0f);
-                    }
+                    motors_[idx]->motor_mit_cmd(motor_target_[idx] * robot_cfg_->motor_sign_[idx], 0.0f,
+                                                robot_cfg_->kp_[idx] * kp_scale, robot_cfg_->kd_[idx] * kd_scale, 0.0f);
                 }
             });
         }

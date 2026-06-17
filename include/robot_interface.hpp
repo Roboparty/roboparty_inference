@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0
-// Copyright (C) 2025-2026 Luo1imasi
-
 #pragma once
 
 #include <string>
@@ -115,6 +112,8 @@ class RobotInterface {
     std::vector<float> ang_vel_buf_{0.f, 0.f, 0.f};
     std::vector<std::shared_ptr<MotorDriver>> motors_;
     std::unique_ptr<ThreadPool> thread_pool_;
+    std::vector<float> cached_ankle_action_;
+    std::vector<float> last_ankle_joint_target_;
 
     std::mutex motors_mutex_, joint_mutex_;
     std::vector<float> joint_q_, joint_vel_, joint_tau_, motor_target_;
@@ -124,5 +123,5 @@ class RobotInterface {
     void setup_imu();
 
     void exec_motors_parallel(const std::function<void(std::shared_ptr<MotorDriver>&, int)>& cmd_func);
-    void motors_mit_cmd(float kp_scale = 1.0f, float kd_scale = 1.0f, bool close_chain_tau = false);
+    void motors_mit_cmd(float kp_scale = 1.0f, float kd_scale = 1.0f);
 };

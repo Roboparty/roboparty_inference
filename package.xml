@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>roboparty_inference</name>
-  <version>1.1.5</version>
+  <version>1.2.0</version>
   <description>inference package</description>
   <maintainer email="ZhihaoLiu_hit@163.com">RoboParty</maintainer>
   <license>GPL-3.0</license>

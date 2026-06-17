@@ -51,10 +51,11 @@ jobs:
 
           echo "✅ Tag matches changelog: v$TAG_VERSION"
 
-      # - name: Setup ROS 2 Humble
-      #   uses: ros-tooling/setup-ros@v0.7
-      #   with:
-      #     required-ros-distributions: humble
+      - name: Setup ROS 2 Humble
+        if: matrix.arch == 'amd64'
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: humble
 
       - name: Cache APT packages
         uses: actions/cache@v4

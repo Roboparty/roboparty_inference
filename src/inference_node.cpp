@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Copyright (C) 2025-2026 Luo1imasi
+
 #include "inference_node.hpp"
 
 ObsStackOrder InferenceNode::parse_obs_stack_order(const std::string& stack_order_name) {

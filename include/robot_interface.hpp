@@ -45,7 +45,11 @@ class RobotInterface {
         std::vector<double> kp_, kd_, extrinsic_R_;
     };
 
-    void apply_action(std::vector<float> action);
+    void apply_action(std::vector<float> p,
+                      std::vector<float> v  = {},
+                      std::vector<float> kp = {},
+                      std::vector<float> kd = {},
+                      std::vector<float> tau = {});
     void init_motors();
     void deinit_motors();
     void reset_joints(std::vector<double> joint_default_angle);
@@ -116,12 +120,14 @@ class RobotInterface {
     std::vector<float> last_ankle_joint_target_;
 
     std::mutex motors_mutex_, joint_mutex_;
-    std::vector<float> joint_q_, joint_vel_, joint_tau_, motor_target_;
+    std::vector<float> joint_q_, joint_vel_, joint_tau_;
+    std::vector<float> motor_pos_target_, motor_vel_target_, motor_kp_target_, motor_kd_target_, motor_tau_target_;
     std::vector<int> close_chain_joint_idx_, motor2urdf_;
 
     void setup_motors();
     void setup_imu();
 
     void exec_motors_parallel(const std::function<void(std::shared_ptr<MotorDriver>&, int)>& cmd_func);
-    void motors_mit_cmd(float kp_scale = 1.0f, float kd_scale = 1.0f);
+    void motors_mit_cmd();
+    void forward_close_chain();
 };

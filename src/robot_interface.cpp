@@ -78,7 +78,11 @@ RobotInterface::RobotInterface(const std::string& config_file) {
     joint_q_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
     joint_vel_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
     joint_tau_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
-    motor_target_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
+    motor_pos_target_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
+    motor_vel_target_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
+    motor_kp_target_  = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
+    motor_kd_target_  = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
+    motor_tau_target_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
 }
 
 void RobotInterface::setup_motors(){
@@ -96,7 +100,30 @@ void RobotInterface::setup_imu(){
     imu_ = IMUDriver::create_imu(imu_cfg_->imu_id_, imu_cfg_->imu_interface_type_, imu_cfg_->imu_interface_, imu_cfg_->imu_type_, imu_cfg_->baudrate_);
 }
 
-void RobotInterface::apply_action(std::vector<float> action) {
+void RobotInterface::forward_close_chain() {
+    Eigen::VectorXd q(2), vel(2), tau(2);
+    for (size_t pair = 0; pair < 2; ++pair) {
+        const bool left = (pair == 0);
+        int idx1 = close_chain_joint_idx_[pair * 2];
+        int idx2 = close_chain_joint_idx_[pair * 2 + 1];
+        q << joint_q_[idx1], joint_q_[idx2];
+        vel << joint_vel_[idx1], joint_vel_[idx2];
+        tau << joint_tau_[idx1], joint_tau_[idx2];
+        ankle_decouple_->get_forwardQVT(q, vel, tau, left);
+        joint_q_[idx1]   = q[0];
+        joint_q_[idx2]   = q[1];
+        joint_vel_[idx1] = vel[0];
+        joint_vel_[idx2] = vel[1];
+        joint_tau_[idx1] = tau[0];
+        joint_tau_[idx2] = tau[1];
+    }
+}
+
+void RobotInterface::apply_action(std::vector<float> p,
+                                  std::vector<float> v,
+                                  std::vector<float> kp,
+                                  std::vector<float> kd,
+                                  std::vector<float> tau) {
     if(!is_init_.load()){
         return;
     }
@@ -113,104 +140,98 @@ void RobotInterface::apply_action(std::vector<float> action) {
         });
 
         if (!close_chain_joint_idx_.empty() && ankle_decouple_){
+            auto kp_cc = [&](size_t i) -> double {
+                return kp.empty() ? robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[i]]
+                                  : static_cast<double>(kp[close_chain_joint_idx_[i]]);
+            };
+            auto kd_cc = [&](size_t i) -> double {
+                return kd.empty() ? robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[i]]
+                                  : static_cast<double>(kd[close_chain_joint_idx_[i]]);
+            };
+
             bool refresh = false;
             for (size_t i = 0; i < close_chain_joint_idx_.size(); ++i) {
-                if (action[close_chain_joint_idx_[i]] != last_ankle_joint_target_[i]) {
+                if (p[close_chain_joint_idx_[i]] != last_ankle_joint_target_[i]) {
                     refresh = true;
                 }
-                last_ankle_joint_target_[i] = action[close_chain_joint_idx_[i]];
+                last_ankle_joint_target_[i] = p[close_chain_joint_idx_[i]];
             }
-            Eigen::VectorXd q(2), vel(2), tau(2);
-            int idx1 = close_chain_joint_idx_[0];
-            int idx2 = close_chain_joint_idx_[1];
-            q << joint_q_[idx1], joint_q_[idx2];
-            vel << joint_vel_[idx1], joint_vel_[idx2];
-            tau << joint_tau_[idx1], joint_tau_[idx2];
-            ankle_decouple_->get_forwardQVT(q, vel, tau, true);
-            joint_q_[idx1] = q[0];
-            joint_q_[idx2] = q[1];
-            joint_vel_[idx1] = vel[0];
-            joint_vel_[idx2] = vel[1];
-            joint_tau_[idx1] = tau[0];
-            joint_tau_[idx2] = tau[1];
-            if (refresh) {
-                tau << robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[0]] * (action[idx1] - q[0]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[0]] * (0.0f - vel[0]),
-                robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[1]] * (action[idx2] - q[1]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[1]] * (0.0f - vel[1]);
-                ankle_decouple_->get_decoupleQVT(q, vel, tau, true);
-                action[idx1] = static_cast<float>(q[0] + (tau[0] + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[0]] * vel[0]) / robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[0]]);
-                action[idx2] = static_cast<float>(q[1] + (tau[1] + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[1]] * vel[1]) / robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[1]]);
-                cached_ankle_action_[0] = action[idx1];
-                cached_ankle_action_[1] = action[idx2];
-            } else {
-                action[idx1] = cached_ankle_action_[0];
-                action[idx2] = cached_ankle_action_[1];
-            }
-            
-            idx1 = close_chain_joint_idx_[2];
-            idx2 = close_chain_joint_idx_[3];
-            q << joint_q_[idx1], joint_q_[idx2];
-            vel << joint_vel_[idx1], joint_vel_[idx2];
-            tau << joint_tau_[idx1], joint_tau_[idx2];
-            ankle_decouple_->get_forwardQVT(q, vel, tau, false);
-            joint_q_[idx1] = q[0];
-            joint_q_[idx2] = q[1];
-            joint_vel_[idx1] = vel[0];
-            joint_vel_[idx2] = vel[1];
-            joint_tau_[idx1] = tau[0];
-            joint_tau_[idx2] = tau[1];
-            if (refresh) {
-                tau << robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[2]] * (action[idx1] - q[0]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[2]] * (0.0f - vel[0]),
-                robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[3]] * (action[idx2] - q[1]) + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[3]] * (0.0f - vel[1]);
-                ankle_decouple_->get_decoupleQVT(q, vel, tau, false);
-                action[idx1] = static_cast<float>(q[0] + (tau[0] + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[2]] * vel[0]) / robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[2]]);
-                action[idx2] = static_cast<float>(q[1] + (tau[1] + robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[3]] * vel[1]) / robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[3]]);
-                cached_ankle_action_[2] = action[idx1];
-                cached_ankle_action_[3] = action[idx2];
-            } else {
-                action[idx1] = cached_ankle_action_[2];
-                action[idx2] = cached_ankle_action_[3];
+            forward_close_chain();
+
+            Eigen::VectorXd q(2), vel(2), tau_cc(2);
+            for (size_t pair = 0; pair < 2; ++pair) {
+                const bool left = (pair == 0);
+                const size_t off = pair * 2;
+                int idx1 = close_chain_joint_idx_[off];
+                int idx2 = close_chain_joint_idx_[off + 1];
+                q << joint_q_[idx1], joint_q_[idx2];
+                vel << joint_vel_[idx1], joint_vel_[idx2];
+                tau_cc << joint_tau_[idx1], joint_tau_[idx2];
+                if (refresh) {
+                    tau_cc << kp_cc(off)     * (p[idx1] - q[0]) + kd_cc(off)     * (0.0 - vel[0]),
+                             kp_cc(off + 1) * (p[idx2] - q[1]) + kd_cc(off + 1) * (0.0 - vel[1]);
+                    ankle_decouple_->get_decoupleQVT(q, vel, tau_cc, left);
+                    p[idx1] = static_cast<float>(q[0] + (tau_cc[0] + kd_cc(off)     * vel[0]) / kp_cc(off));
+                    p[idx2] = static_cast<float>(q[1] + (tau_cc[1] + kd_cc(off + 1) * vel[1]) / kp_cc(off + 1));
+                    cached_ankle_action_[off]     = p[idx1];
+                    cached_ankle_action_[off + 1] = p[idx2];
+                } else {
+                    p[idx1] = cached_ankle_action_[off];
+                    p[idx2] = cached_ankle_action_[off + 1];
+                }
             }
         }
     }
 
     {
         std::unique_lock<std::mutex> lock(motors_mutex_);
-        for (size_t i = 0; i < motor_target_.size(); i++){
-            motor_target_[i] = action[motor2urdf_[i]];
+        for (size_t i = 0; i < motor_pos_target_.size(); i++){
+            const size_t ji = motor2urdf_[i];
+            motor_pos_target_[i] = p[ji];
+            motor_vel_target_[i] = v.empty()  ? 0.0f : v[ji];
+            motor_kp_target_[i]  = kp.empty() ? static_cast<float>(robot_cfg_->kp_[i]) : kp[ji];
+            motor_kd_target_[i]  = kd.empty() ? static_cast<float>(robot_cfg_->kd_[i]) : kd[ji];
+            motor_tau_target_[i] = tau.empty() ? 0.0f : tau[ji];
         }
     }
 
-    motors_mit_cmd(1.0f, 1.0f);
+    motors_mit_cmd();
 }
 
 void RobotInterface::reset_joints(std::vector<double> joint_default_angle) {
     if (!close_chain_joint_idx_.empty() && ankle_decouple_){
         Eigen::VectorXd q(2), vel(2), tau(2);
-        int idx1 = close_chain_joint_idx_[0];
-        int idx2 = close_chain_joint_idx_[1];
-        q << joint_default_angle[idx1], joint_default_angle[idx2];
-        ankle_decouple_->get_decoupleQVT(q, vel, tau, true);
-        joint_default_angle[idx1] = q[0];
-        joint_default_angle[idx2] = q[1];
-
-        idx1 = close_chain_joint_idx_[2];
-        idx2 = close_chain_joint_idx_[3];
-        q << joint_default_angle[idx1], joint_default_angle[idx2];
-        ankle_decouple_->get_decoupleQVT(q, vel, tau, false);
-        joint_default_angle[idx1] = q[0];
-        joint_default_angle[idx2] = q[1];
+        for (size_t pair = 0; pair < 2; ++pair) {
+            const bool left = (pair == 0);
+            int idx1 = close_chain_joint_idx_[pair * 2];
+            int idx2 = close_chain_joint_idx_[pair * 2 + 1];
+            q << joint_default_angle[idx1], joint_default_angle[idx2];
+            ankle_decouple_->get_decoupleQVT(q, vel, tau, left);
+            joint_default_angle[idx1] = q[0];
+            joint_default_angle[idx2] = q[1];
+        }
     }
 
     {
         std::unique_lock<std::mutex> lock(motors_mutex_);
-        for (size_t i = 0; i < motor_target_.size(); i++){
-            motor_target_[i] = joint_default_angle[motor2urdf_[i]];
+        for (size_t i = 0; i < motor_pos_target_.size(); i++){
+            motor_pos_target_[i] = static_cast<float>(joint_default_angle[motor2urdf_[i]]);
+            motor_vel_target_[i] = 0.0f;
+            motor_kp_target_[i]  = static_cast<float>(robot_cfg_->kp_[i]) * (1.0f / 2.5f);
+            motor_kd_target_[i]  = static_cast<float>(robot_cfg_->kd_[i]);
+            motor_tau_target_[i] = 0.0f;
         }
     }
 
-    motors_mit_cmd(1.0f/2.5f, 1.0f);
+    motors_mit_cmd();
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    motors_mit_cmd(1.0f, 1.0f);
+    {
+        std::unique_lock<std::mutex> lock(motors_mutex_);
+        for (size_t i = 0; i < motor_kp_target_.size(); i++){
+            motor_kp_target_[i] = static_cast<float>(robot_cfg_->kp_[i]);
+        }
+    }
+    motors_mit_cmd();
 }
 
 void RobotInterface::refresh_joints() {
@@ -229,32 +250,7 @@ void RobotInterface::refresh_joints() {
         });
 
         if (!close_chain_joint_idx_.empty() && ankle_decouple_) {
-            Eigen::VectorXd q(2), vel(2), tau(2);
-            int idx1 = close_chain_joint_idx_[0];
-            int idx2 = close_chain_joint_idx_[1];
-            q << joint_q_[idx1], joint_q_[idx2];
-            vel << joint_vel_[idx1], joint_vel_[idx2];
-            tau << joint_tau_[idx1], joint_tau_[idx2];
-            ankle_decouple_->get_forwardQVT(q, vel, tau, true);
-            joint_q_[idx1] = q[0];
-            joint_q_[idx2] = q[1];
-            joint_vel_[idx1] = vel[0];
-            joint_vel_[idx2] = vel[1];
-            joint_tau_[idx1] = tau[0];
-            joint_tau_[idx2] = tau[1];
-            
-            idx1 = close_chain_joint_idx_[2];
-            idx2 = close_chain_joint_idx_[3];
-            q << joint_q_[idx1], joint_q_[idx2];
-            vel << joint_vel_[idx1], joint_vel_[idx2];
-            tau << joint_tau_[idx1], joint_tau_[idx2];
-            ankle_decouple_->get_forwardQVT(q, vel, tau, false);
-            joint_q_[idx1] = q[0];
-            joint_q_[idx2] = q[1];
-            joint_vel_[idx1] = vel[0];
-            joint_vel_[idx2] = vel[1];
-            joint_tau_[idx1] = tau[0];
-            joint_tau_[idx2] = tau[1];
+            forward_close_chain();
         }
     }
 }
@@ -285,7 +281,7 @@ void RobotInterface::deinit_motors() {
     is_init_.store(false);
 }
 
-void RobotInterface::motors_mit_cmd(float kp_scale, float kd_scale) {
+void RobotInterface::motors_mit_cmd() {
     std::unique_lock<std::mutex> lock(motors_mutex_);
     std::vector<std::function<void()>> tasks;
     size_t count = 0;
@@ -293,25 +289,30 @@ void RobotInterface::motors_mit_cmd(float kp_scale, float kd_scale) {
         const size_t num_motors = motors_cfg_->motor_num_[bus];
         const size_t start_count = count;
         if (motors_cfg_->motor_interface_type_[bus] == "canfd") {
-            tasks.push_back([this, start_count, num_motors, kp_scale, kd_scale]() {
+            tasks.push_back([this, start_count, num_motors]() {
                 float pos[8] = {}, vel[8] = {}, kp[8] = {}, kd[8] = {}, tau[8] = {};
                 for (size_t j = 0; j < num_motors; ++j) {
                     const size_t idx = start_count + j;
                     const long int motor_id = motors_cfg_->motor_id_[idx];
                     const size_t slot = (motor_id > 0 && motor_id <= 8) ? static_cast<size_t>(motor_id - 1) : j;
                     if (slot >= 8) continue;
-                    pos[slot] = motor_target_[idx] * robot_cfg_->motor_sign_[idx];
-                    kp[slot] = robot_cfg_->kp_[idx] * kp_scale;
-                    kd[slot] = robot_cfg_->kd_[idx] * kd_scale;
+                    pos[slot] = motor_pos_target_[idx] * robot_cfg_->motor_sign_[idx];
+                    vel[slot] = motor_vel_target_[idx];
+                    kp[slot]  = motor_kp_target_[idx];
+                    kd[slot]  = motor_kd_target_[idx];
+                    tau[slot] = motor_tau_target_[idx];
                 }
                 motors_[start_count]->motor_mit_cmd(pos, vel, kp, kd, tau);
             });
         } else {
-            tasks.push_back([this, start_count, num_motors, kp_scale, kd_scale]() {
+            tasks.push_back([this, start_count, num_motors]() {
                 for (size_t j = 0; j < num_motors; ++j) {
                     const size_t idx = start_count + j;
-                    motors_[idx]->motor_mit_cmd(motor_target_[idx] * robot_cfg_->motor_sign_[idx], 0.0f,
-                                                robot_cfg_->kp_[idx] * kp_scale, robot_cfg_->kd_[idx] * kd_scale, 0.0f);
+                    motors_[idx]->motor_mit_cmd(motor_pos_target_[idx] * robot_cfg_->motor_sign_[idx],
+                                                 motor_vel_target_[idx],
+                                                 motor_kp_target_[idx],
+                                                 motor_kd_target_[idx],
+                                                 motor_tau_target_[idx]);
                 }
             });
         }

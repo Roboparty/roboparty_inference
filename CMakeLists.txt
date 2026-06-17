@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(roboparty-inference)
+project(roboparty_inference)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native")
 set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
@@ -55,8 +55,8 @@ target_link_libraries(robot PUBLIC ${PUBLIC_DEPENDENCIES} utils cnpy
 pybind11_add_module(robot_py src/pybind_module.cpp)
 target_link_libraries(robot_py PUBLIC robot)
 
-add_executable(${PROJECT_NAME}_node src/inference_node.cpp src/ros_interface.cpp src/obs_manager.cpp)
-target_include_directories(${PROJECT_NAME}_node
+add_executable(inference_node src/inference_node.cpp src/ros_interface.cpp src/obs_manager.cpp)
+target_include_directories(inference_node
   PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
   $<INSTALL_INTERFACE:include>
@@ -64,12 +64,12 @@ target_include_directories(${PROJECT_NAME}_node
   ${ONNXRUNTIME_INCLUDE_DIR}
   ${CNPY_INCLUDE_DIR}
 )
-target_link_libraries(${PROJECT_NAME}_node PUBLIC ${PUBLIC_DEPENDENCIES} utils cnpy robot)
-ament_target_dependencies(${PROJECT_NAME}_node PUBLIC rclcpp sensor_msgs geometry_msgs std_srvs)
+target_link_libraries(inference_node PUBLIC ${PUBLIC_DEPENDENCIES} utils cnpy robot)
+ament_target_dependencies(inference_node PUBLIC rclcpp sensor_msgs geometry_msgs std_srvs)
 
-set_target_properties(${PROJECT_NAME}_node PROPERTIES LINK_FLAGS "-Wl,--no-as-needed")
+set_target_properties(inference_node PROPERTIES LINK_FLAGS "-Wl,--no-as-needed")
 
-install(TARGETS ${PROJECT_NAME}_node
+install(TARGETS inference_node
   RUNTIME DESTINATION lib/${PROJECT_NAME})
 
 install(TARGETS robot utils

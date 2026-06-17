@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2025-2026 Luo1imasi
+
 ##launch file
 from launch import LaunchDescription
 from launch_ros.actions import Node
@@ -7,7 +10,7 @@ import os
 def generate_launch_description():
     configs = [
         os.path.join(
-            get_package_share_directory("inference"),
+            get_package_share_directory("roboparty_inference"),
             "config",
             "inference.yaml",
         ),
@@ -16,7 +19,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             Node(
-                package="inference",
+                package="roboparty_inference",
                 executable="inference_node",
                 name="inference_node",
                 parameters=configs,

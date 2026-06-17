@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Copyright (C) 2025-2026 Luo1imasi
+
 #include "motion_loader.hpp"
 
 MotionLoader::MotionLoader(const std::string& motion_file) {

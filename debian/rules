@@ -32,25 +32,9 @@ override_dh_auto_configure:
 override_dh_install:
 	dh_install
 	
-	# models
-	if [ -d "models" ]; then \
-		install -d debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/models; \
-		cp models/*.onnx debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/models/ 2>/dev/null || true; \
-		chmod 644 debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/models/*.onnx 2>/dev/null || true; \
-	fi
-	
-	# motions
-	if [ -d "motions" ]; then \
-		install -d debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/motions; \
-		cp motions/*.npz debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/motions/ 2>/dev/null || true; \
-		chmod 644 debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/motions/*.npz 2>/dev/null || true; \
-	fi
-	
-	# config reorganization
-	if [ -d "debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config" ]; then \
-		mkdir -p debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/inference debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/robot; \
-		mv debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/inference*.yaml debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/inference/ 2>/dev/null || true; \
-		mv debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/robot*.yaml debian/$(PKG_NAME)/opt/roboparty/share/$(PKG_NAME)/config/robot/ 2>/dev/null || true; \
+	# robot profiles
+	if [ -d "debian/$(PKG_NAME)/opt/roboparty/share/roboparty_inference/robots" ]; then \
+		find debian/$(PKG_NAME)/opt/roboparty/share/roboparty_inference/robots -type f \( -name "*.yaml" -o -name "*.onnx" -o -name "*.npz" \) -exec chmod 644 {} \; ; \
 	fi
 	
 	# Fix onnxruntime symlinks

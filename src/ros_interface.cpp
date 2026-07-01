@@ -4,6 +4,12 @@
 #include "inference_node.hpp"
 
 void InferenceNode::load_config() {
+    const std::string default_robot_dir = std::string(ROOT_DIR) + "robots/rpo";
+    this->declare_parameter<std::string>("robot_name", "rpo");
+    this->declare_parameter<std::string>("policy_name", "default");
+    this->declare_parameter<std::string>("robot_config", default_robot_dir + "/robot.yaml");
+    this->declare_parameter<std::string>("model_dir", default_robot_dir + "/models");
+    this->declare_parameter<std::string>("motion_dir", default_robot_dir + "/motions");
     this->declare_parameter<std::vector<std::string>>("model_names", std::vector<std::string>{});
     this->declare_parameter<std::vector<std::string>>("motion_names", std::vector<std::string>{});
     this->declare_parameter<std::vector<std::string>>("obs_layouts", std::vector<std::string>{});
@@ -35,6 +41,15 @@ void InferenceNode::load_config() {
     std::vector<std::string> extra_obs_layouts;
     std::vector<long int> frame_stacks;
     std::vector<std::string> obs_stack_orders;
+    std::string robot_name;
+    std::string policy_name;
+    std::string model_dir;
+    std::string motion_dir;
+    this->get_parameter("robot_name", robot_name);
+    this->get_parameter("policy_name", policy_name);
+    this->get_parameter("robot_config", robot_config_path_);
+    this->get_parameter("model_dir", model_dir);
+    this->get_parameter("motion_dir", motion_dir);
     this->get_parameter("model_names", model_names);
     this->get_parameter("motion_names", motion_names);
     this->get_parameter("obs_layouts", obs_layouts);
@@ -84,6 +99,14 @@ void InferenceNode::load_config() {
     require_policy_count(obs_stack_orders, "obs_stack_orders");
     require_empty_or_policy_count(motion_names, "motion_names");
 
+    const auto resolve_asset_path = [](const std::string& base_dir, const std::string& asset_name) {
+        const std::filesystem::path asset_path(asset_name);
+        if (asset_path.is_absolute()) {
+            return asset_path.string();
+        }
+        return (std::filesystem::path(base_dir) / asset_path).lexically_normal().string();
+    };
+
     for (size_t i = 0; i < policy_count; i++) {
         const std::string& policy_model_name = model_names[i];
         const std::string policy_motion_name = motion_names.empty() ? "" : motion_names[i];
@@ -99,9 +122,9 @@ void InferenceNode::load_config() {
 
         PolicyRuntime policy;
         policy.name = policy_model_name;
-        policy.model_path = std::string(ROOT_DIR) + "models/" + policy_model_name;
+        policy.model_path = resolve_asset_path(model_dir, policy_model_name);
         if (!policy_motion_name.empty()) {
-            policy.motion_path = std::string(ROOT_DIR) + "motions/" + policy_motion_name;
+            policy.motion_path = resolve_asset_path(motion_dir, policy_motion_name);
         }
         policy.obs_layout = parse_obs_layout(obs_layouts[i], "obs_layouts[" + std::to_string(i) + "]");
         policy.obs_layout_sizes.reserve(policy.obs_layout.size());
@@ -129,6 +152,11 @@ void InferenceNode::load_config() {
         policies_.push_back(std::move(policy));
     }
 
+    RCLCPP_INFO(this->get_logger(), "robot_name: %s", robot_name.c_str());
+    RCLCPP_INFO(this->get_logger(), "policy_name: %s", policy_name.c_str());
+    RCLCPP_INFO(this->get_logger(), "robot_config: %s", robot_config_path_.c_str());
+    RCLCPP_INFO(this->get_logger(), "model_dir: %s", model_dir.c_str());
+    RCLCPP_INFO(this->get_logger(), "motion_dir: %s", motion_dir.c_str());
     for(size_t i = 0; i < policies_.size(); i++) {
         RCLCPP_INFO(this->get_logger(), "policy %zu: %s", i, policies_[i].name.c_str());
         RCLCPP_INFO(this->get_logger(), "policy_model_path %zu: %s", i, policies_[i].model_path.c_str());

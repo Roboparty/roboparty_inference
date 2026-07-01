@@ -90,7 +90,7 @@ class InferenceNode : public rclcpp::Node {
     InferenceNode() : Node("inference_node") {
         load_config();
 
-        robot_ = std::make_shared<RobotInterface>(std::string(ROOT_DIR) + "config/robot.yaml");
+        robot_ = std::make_shared<RobotInterface>(robot_config_path_);
 
         Ort::ThreadingOptions thread_opts;
         if (intra_threads_ > 0) {
@@ -185,6 +185,7 @@ class InferenceNode : public rclcpp::Node {
    private:
     std::shared_ptr<RobotInterface> robot_;
     std::atomic<bool> is_running_{false}, is_joy_control_{true}, is_interrupt_{false}, is_motion_policy_{false};
+    std::string robot_config_path_;
     std::string perception_obs_topic_;
     size_t current_motion_policy_idx_ = 0;
     int active_policy_idx_ = 0;

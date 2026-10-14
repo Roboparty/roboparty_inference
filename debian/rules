@@ -14,11 +14,14 @@ PKG_NAME = roboparty-inference
 
 override_dh_auto_configure:
 	# Extract thirdparty dependencies
-	if [ ! -d "thirdparty/onnxruntime-linux-x64-1.21.0" ] && [ -f "thirdparty/onnxruntime-linux-x64-1.21.0.tgz" ]; then \
-		mkdir -p "thirdparty/onnxruntime-linux-x64-1.21.0" && tar xzf "thirdparty/onnxruntime-linux-x64-1.21.0.tgz" -C "thirdparty/onnxruntime-linux-x64-1.21.0" --strip-components=1; \
-	fi
-	if [ ! -d "thirdparty/onnxruntime-linux-aarch64-1.21.0" ] && [ -f "thirdparty/onnxruntime-linux-aarch64-1.21.0.tgz" ]; then \
-		mkdir -p "thirdparty/onnxruntime-linux-aarch64-1.21.0" && tar xzf "thirdparty/onnxruntime-linux-aarch64-1.21.0.tgz" -C "thirdparty/onnxruntime-linux-aarch64-1.21.0" --strip-components=1; \
+	build_arch="$$(dpkg-architecture -qDEB_HOST_GNU_CPU 2>/dev/null || uname -m)"; \
+	case "$$build_arch" in \
+		x86_64|amd64) onnx_archive="thirdparty/onnxruntime-linux-x64-1.21.0.tgz" ;; \
+		aarch64|arm64) onnx_archive="thirdparty/onnxruntime-linux-aarch64-1.21.0.tgz" ;; \
+		*) echo "Unsupported architecture: $$build_arch" >&2; exit 1 ;; \
+	esac; \
+	if [ ! -d "thirdparty/onnxruntime" ] && [ -f "$$onnx_archive" ]; then \
+		mkdir -p "thirdparty/onnxruntime" && tar xzf "$$onnx_archive" -C "thirdparty/onnxruntime" --strip-components=1; \
 	fi
 	if [ ! -d "thirdparty/yaml-cpp-0.9.0" ] && [ -f "thirdparty/yaml-cpp-0.9.0.tar.gz" ]; then \
 		mkdir -p "thirdparty/yaml-cpp-0.9.0" && tar xzf "thirdparty/yaml-cpp-0.9.0.tar.gz" -C "thirdparty/yaml-cpp-0.9.0" --strip-components=1; \
@@ -27,6 +30,7 @@ override_dh_auto_configure:
 	dh_auto_configure -- \
 		-DCMAKE_INSTALL_PREFIX=/opt/roboparty \
 		-DCMAKE_PREFIX_PATH="/opt/roboparty;/opt/ros/jazzy" \
+		-DFETCHCONTENT_SOURCE_DIR_YAML-CPP="$$(pwd)/thirdparty/yaml-cpp-0.9.0" \
 		-DCMAKE_BUILD_TYPE=Release
 
 override_dh_install:

@@ -352,7 +352,7 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
         is_joy_control_.store(!is_joy_control_);
         RCLCPP_INFO(this->get_logger(), "Controlled by %s", is_joy_control_.load() ? "joy" : "/cmd_vel");
     }
-    if (supports_interrupt() || has_motion_policy()) {
+    if (supports_interrupt() || has_motion_policy() || has_latent_policy()) {
         if (msg->buttons[4] == 1 && msg->buttons[4] != last_button4_) {
             const auto switch_while_paused = [this](auto&& switch_mode) {
                 std::unique_lock<std::mutex> switch_lock(lb_switch_mutex_);
@@ -389,6 +389,16 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
                     reset_policy_runtime(active_policy());
                     policy_name = active_policy().name;
                     RCLCPP_INFO(this->get_logger(), "Policy enabled: %s", policy_name.c_str());
+                });
+            } else if (has_latent_policy()) {
+                switch_while_paused([this]() {
+                    std::unique_lock<std::mutex> lock(mode_mutex_);
+                    auto& policy = active_policy();
+                    policy.latent_loader->trigger();
+                    RCLCPP_INFO(
+                        this->get_logger(),
+                        "Latent playback %s",
+                        policy.latent_loader->is_playing() ? "started from frame 0" : "rewound to frame 0 and paused");
                 });
             }
         }
@@ -483,6 +493,7 @@ bool InferenceNode::start_joint_reset() {
         reset_thread_running_ = false;
         throw;
     }
+    RCLCPP_INFO(this->get_logger(), "Motor reset started");
     return true;
 }
 
@@ -554,7 +565,7 @@ void InferenceNode::set_zeros_srv(const std::shared_ptr<std_srvs::srv::Trigger::
     try {
         robot_->set_zeros();
         response->success = true;
-        response->message = "Zeros set successfully";
+        response->message = "Zero commands sent; power-cycle the motors before use";
     } catch (const std::exception& e) {
         response->success = false;
         response->message = e.what();

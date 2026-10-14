@@ -102,7 +102,7 @@ class InferenceNode : public rclcpp::Node {
     InferenceNode() : Node("inference_node") {
         load_config();
 
-        robot_ = std::make_shared<RobotInterface>(robot_config_path_);
+        robot_ = std::make_shared<RobotInterface>(robot_config_path_, dt_);
 
         Ort::ThreadingOptions thread_opts;
         if (intra_threads_ > 0) {
@@ -188,6 +188,13 @@ class InferenceNode : public rclcpp::Node {
     }
     ~InferenceNode() {
         is_running_.store(false);
+        if (robot_ && robot_->is_init_.load()) {
+            try {
+                robot_->deinit_motors();
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "Failed to deinitialize motors during shutdown: %s", e.what());
+            }
+        }
         if (reset_thread_.joinable()) {
             reset_thread_.join();
         }
@@ -204,6 +211,7 @@ class InferenceNode : public rclcpp::Node {
     }
     bool supports_interrupt() const;
     bool has_motion_policy() const;
+    bool has_latent_policy() const;
    private:
     std::shared_ptr<RobotInterface> robot_;
     std::atomic<bool> is_running_{false}, is_joy_control_{true}, is_interrupt_{false}, is_motion_policy_{false};

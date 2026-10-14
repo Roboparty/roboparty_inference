@@ -229,6 +229,12 @@ bool InferenceNode::has_motion_policy() const {
     return !motion_policy_indices_.empty();
 }
 
+bool InferenceNode::has_latent_policy() const {
+    return std::any_of(policies_.begin(), policies_.end(), [](const PolicyRuntime& policy) {
+        return policy.latent_loader != nullptr;
+    });
+}
+
 bool InferenceNode::supports_interrupt() const {
     return !interrupt_action_.empty();
 }
@@ -438,8 +444,8 @@ int main(int argc, char **argv) {
         RCLCPP_INFO(node->get_logger(), "Press 'A' to reset motors");
         RCLCPP_INFO(node->get_logger(), "Press 'B' to start/pause inference");
         RCLCPP_INFO(node->get_logger(), "Press 'Y' to switch between Gamepad Control / cmd_vel Control");
-        if (node->supports_interrupt() || node->has_motion_policy()){
-            RCLCPP_INFO(node->get_logger(), "Press 'LB' to switch policy mode (available in beyondmimic / interrupt modes)");
+        if (node->supports_interrupt() || node->has_motion_policy() || node->has_latent_policy()){
+            RCLCPP_INFO(node->get_logger(), "Press 'LB' to switch policy mode or start/reset latent playback");
         }
         if (node->has_motion_policy()){
             RCLCPP_INFO(node->get_logger(), "Press 'RB' to switch motion sequence (available in beyondmimic mode)");

@@ -4,8 +4,25 @@
 #include "robot_interface.hpp"
 
 #include <array>
+#include <cmath>
+#include <stdexcept>
 
-RobotInterface::RobotInterface(const std::string& config_file) {
+static constexpr float kTwoPi = 2.0f * static_cast<float>(M_PI);
+
+static float wrap_joint(float position) {
+    float wrapped = std::remainder(position, kTwoPi);
+    return wrapped >= static_cast<float>(M_PI) ? wrapped - kTwoPi : wrapped;
+}
+
+static float unwrap_target(float target, float current_position) {
+    return target + kTwoPi * std::round((current_position - target) / kTwoPi);
+}
+
+RobotInterface::RobotInterface(const std::string& config_file, double control_dt) {
+    if (control_dt <= 0.0) {
+        throw std::invalid_argument("control_dt must be greater than zero");
+    }
+    offline_threshold_cycles_ = std::max(1, static_cast<int>(std::ceil(0.1 / control_dt)));
     YAML::Node config = YAML::LoadFile(config_file);
 
     imu_cfg_ = std::make_shared<IMUCfg>();
@@ -65,6 +82,7 @@ RobotInterface::RobotInterface(const std::string& config_file) {
                 close_chain_joint_idx_.push_back(std::distance(robot_cfg_->urdf2motor_.begin(), it));
             }
         }
+        last_ankle_joint_target_.resize(close_chain_joint_idx_.size(), 0.0f);
         if (robot_node["type"]) {
             ankle_decouple_ = Decouple::create(robot_node["type"].as<std::string>());
         } else {
@@ -133,7 +151,8 @@ void RobotInterface::read_joints() {
     }
     std::unique_lock<std::mutex> lock(joint_mutex_);
     exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
-        joint_q_[motor2urdf_[idx]] = motor->get_motor_pos() * robot_cfg_->motor_sign_[idx];
+        const float sign = static_cast<float>(robot_cfg_->motor_sign_[idx]);
+        joint_q_[motor2urdf_[idx]] = wrap_joint(motor->get_motor_pos() * sign);
         joint_vel_[motor2urdf_[idx]] = motor->get_motor_spd() * robot_cfg_->motor_sign_[idx];
         joint_tau_[motor2urdf_[idx]] = motor->get_motor_current() * robot_cfg_->motor_sign_[idx];
     });
@@ -142,6 +161,7 @@ void RobotInterface::read_joints() {
     if (!close_chain_joint_idx_.empty() && ankle_decouple_) {
         forward_close_chain();
     }
+    joint_cache_valid_.store(true);
 }
 
 void RobotInterface::read_imu() {
@@ -174,14 +194,22 @@ void RobotInterface::apply_action(const std::vector<float>& p,
     if(!is_init_.load()){
         return;
     }
-    const bool use_close_chain_tau = !close_chain_joint_idx_.empty() && ankle_decouple_;
-    std::array<float, 4> ankle_motor_tau{};
-
-    read_joints();
+    const bool use_close_chain_position = !close_chain_joint_idx_.empty() && ankle_decouple_;
 
     {
         std::unique_lock<std::mutex> lock(joint_mutex_);
-        if (use_close_chain_tau){
+        exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
+            const float motor_pos = motor->get_motor_pos();
+            const float motor_vel = motor->get_motor_spd();
+            const float motor_tau = motor->get_motor_current();
+            const float sign = static_cast<float>(robot_cfg_->motor_sign_[idx]);
+            joint_q_[motor2urdf_[idx]] = wrap_joint(motor_pos * sign);
+            joint_vel_[motor2urdf_[idx]] = motor_vel * robot_cfg_->motor_sign_[idx];
+            joint_tau_[motor2urdf_[idx]] = motor_tau * robot_cfg_->motor_sign_[idx];
+        });
+        throw_if_motors_offline();
+
+        if (use_close_chain_position){
             auto kp_cc = [&](size_t i) -> double {
                 return kp.empty() ? robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[i]]
                                   : static_cast<double>(kp[close_chain_joint_idx_[i]]);
@@ -197,19 +225,42 @@ void RobotInterface::apply_action(const std::vector<float>& p,
                 return tau.empty() ? 0.0 : static_cast<double>(tau[close_chain_joint_idx_[i]]);
             };
 
+            std::array<float, 4> motor_pos{};
+            std::array<float, 4> motor_vel{};
+            for (size_t i = 0; i < motor_pos.size(); ++i) {
+                const int joint_idx = close_chain_joint_idx_[i];
+                motor_pos[i] = joint_q_[joint_idx];
+                motor_vel[i] = joint_vel_[joint_idx];
+            }
+
+            forward_close_chain();
+
             Eigen::Vector2d q, vel, tau_cc;
             for (size_t pair = 0; pair < 2; ++pair) {
                 const bool left = (pair == 0);
                 const size_t off = pair * 2;
                 const int idx1 = close_chain_joint_idx_[off];
                 const int idx2 = close_chain_joint_idx_[off + 1];
+                const double motor_kp1 = kp_cc(off);
+                const double motor_kp2 = kp_cc(off + 1);
+                const double motor_kd1 = kd_cc(off);
+                const double motor_kd2 = kd_cc(off + 1);
+
                 q << joint_q_[idx1], joint_q_[idx2];
                 vel << joint_vel_[idx1], joint_vel_[idx2];
-                tau_cc << kp_cc(off)     * (p[idx1] - q[0]) + kd_cc(off)     * (vel_target_cc(off)     - vel[0]) + tau_ff_cc(off),
-                          kp_cc(off + 1) * (p[idx2] - q[1]) + kd_cc(off + 1) * (vel_target_cc(off + 1) - vel[1]) + tau_ff_cc(off + 1);
+                tau_cc << motor_kp1 * (p[idx1] - q[0]) + motor_kd1 * (vel_target_cc(off)     - vel[0]) + tau_ff_cc(off),
+                          motor_kp2 * (p[idx2] - q[1]) + motor_kd2 * (vel_target_cc(off + 1) - vel[1]) + tau_ff_cc(off + 1);
                 ankle_decouple_->get_decoupleQVT(q, vel, tau_cc, left);
-                ankle_motor_tau[off] = static_cast<float>(tau_cc[0]);
-                ankle_motor_tau[off + 1] = static_cast<float>(tau_cc[1]);
+
+                const double theta1 = motor_pos[off];
+                const double theta2 = motor_pos[off + 1];
+                const double theta_vel1 = motor_vel[off];
+                const double theta_vel2 = motor_vel[off + 1];
+
+                last_ankle_joint_target_[off] = static_cast<float>(
+                    theta1 + (tau_cc[0] + motor_kd1 * theta_vel1) / motor_kp1);
+                last_ankle_joint_target_[off + 1] = static_cast<float>(
+                    theta2 + (tau_cc[1] + motor_kd2 * theta_vel2) / motor_kp2);
             }
         }
     }
@@ -224,17 +275,17 @@ void RobotInterface::apply_action(const std::vector<float>& p,
             motor_kd_target_[i]  = kd.empty() ? static_cast<float>(robot_cfg_->kd_[i]) : kd[ji];
             motor_tau_target_[i] = tau.empty() ? 0.0f : tau[ji];
         }
-        if (use_close_chain_tau) {
-            for (size_t ankle_idx = 0; ankle_idx < ankle_motor_tau.size(); ++ankle_idx) {
+        if (use_close_chain_position) {
+            for (size_t ankle_idx = 0; ankle_idx < last_ankle_joint_target_.size(); ++ankle_idx) {
                 const size_t motor_idx = robot_cfg_->close_chain_motor_idx_[ankle_idx];
-                motor_pos_target_[motor_idx] = 0.0f;
+                motor_pos_target_[motor_idx] = last_ankle_joint_target_[ankle_idx];
                 motor_vel_target_[motor_idx] = 0.0f;
-                motor_kp_target_[motor_idx] = 0.0f;
-                motor_kd_target_[motor_idx] = 0.0f;
-                motor_tau_target_[motor_idx] = ankle_motor_tau[ankle_idx];
+                motor_tau_target_[motor_idx] = 0.0f;
             }
         }
     }
+
+    joint_cache_valid_.store(true);
 
     motors_mit_cmd();
 }
@@ -245,21 +296,27 @@ void RobotInterface::reset_joints(std::vector<double> joint_default_angle) {
         throw std::runtime_error("Joint reset is already in progress");
     }
     std::unique_lock<std::mutex> command_lock(command_mutex_);
+    if (joint_default_angle.size() != motors_.size() ||
+        !std::all_of(joint_default_angle.begin(), joint_default_angle.end(),
+                     [](double value) { return std::isfinite(value); })) {
+        throw std::invalid_argument("Reset targets must contain one finite angle per motor");
+    }
 
     constexpr int reset_duration_ms = 4000;
     constexpr int reset_period_ms = 20;
     constexpr int reset_steps = reset_duration_ms / reset_period_ms;
     const auto reset_period = std::chrono::milliseconds(reset_period_ms);
 
-    refresh_joints();
+    if (!joint_cache_valid_.load()) {
+        refresh_joints();
+    }
     const std::vector<float> start_joint_q = get_joint_q();
     auto next_frame = std::chrono::steady_clock::now();
 
     for (int step = 0; step <= reset_steps; ++step) {
-        if (step > 0) {
-            read_joints();
+        if (!is_init_.load()) {
+            throw std::runtime_error("Joint reset interrupted by deinitialization");
         }
-
         const double phase = static_cast<double>(step) / reset_steps;
         const double blend = phase * phase * (3.0 - 2.0 * phase);
         std::vector<double> joint_target(joint_default_angle.size());
@@ -312,10 +369,18 @@ void RobotInterface::refresh_joints() {
     if (!is_init_.load()) {
         throw std::runtime_error("Motors are not initialized");
     }
-    exec_motors_parallel([](std::shared_ptr<MotorDriver>& motor, int) {
-        motor->refresh_motor_status();
+    exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int) {
+        // RP refresh can enable a motor, so cancellation must also gate refresh sends.
+        if (is_init_.load()) {
+            motor->refresh_motor_status();
+        }
     });
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    for (int step = 0; step < 50; ++step) {
+        if (!is_init_.load()) {
+            throw std::runtime_error("Motor refresh interrupted by deinitialization");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
     read_joints();
 }
 
@@ -338,6 +403,7 @@ void RobotInterface::clear_errors() {
 
 void RobotInterface::init_motors() {
     std::unique_lock<std::mutex> command_lock(command_mutex_);
+    std::unique_lock<std::mutex> lifecycle_lock(lifecycle_mutex_);
     if (is_init_.load()) {
         throw std::runtime_error("Motors are already initialized");
     }
@@ -345,15 +411,18 @@ void RobotInterface::init_motors() {
         motor->init_motor();
     });
     is_init_.store(true);
+    joint_cache_valid_.store(false);
 }
 
 void RobotInterface::deinit_motors() {
+    std::unique_lock<std::mutex> lifecycle_lock(lifecycle_mutex_);
     if (!is_init_.exchange(false)) {
         throw std::runtime_error("Motors are already deinitialized");
     }
     exec_motors_parallel([](std::shared_ptr<MotorDriver>& motor, int) {
         motor->deinit_motor();
     });
+    joint_cache_valid_.store(false);
 }
 
 void RobotInterface::motors_mit_cmd() {
@@ -373,7 +442,8 @@ void RobotInterface::motors_mit_cmd() {
                     : idx - start_count;
                 if (slot >= 8) continue;
                 const float sign = static_cast<float>(robot_cfg_->motor_sign_[idx]);
-                pos[slot] = motor_pos_target_[idx] * sign;
+                const float motor_target = motor_pos_target_[idx] * sign;
+                pos[slot] = unwrap_target(motor_target, motors_[idx]->get_motor_pos());
                 vel[slot] = motor_vel_target_[idx] * sign;
                 kp[slot]  = motor_kp_target_[idx];
                 kd[slot]  = motor_kd_target_[idx];
@@ -383,7 +453,9 @@ void RobotInterface::motors_mit_cmd() {
         } else {
             for (size_t idx = start_count; idx < end_count; ++idx) {
                 const float sign = static_cast<float>(robot_cfg_->motor_sign_[idx]);
-                motors_[idx]->motor_mit_cmd(motor_pos_target_[idx] * sign,
+                const float motor_target = unwrap_target(
+                    motor_pos_target_[idx] * sign, motors_[idx]->get_motor_pos());
+                motors_[idx]->motor_mit_cmd(motor_target,
                                              motor_vel_target_[idx] * sign,
                                              motor_kp_target_[idx],
                                              motor_kd_target_[idx],
@@ -397,7 +469,7 @@ void RobotInterface::throw_if_motors_offline() const {
     std::string offline_motors;
     for (size_t idx = 0; idx < motors_.size(); ++idx) {
         const int response_count = motors_[idx]->get_response_count();
-        if (response_count <= offline_threshold_) {
+        if (response_count < offline_threshold_cycles_) {
             continue;
         }
         if (!offline_motors.empty()) {

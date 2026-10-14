@@ -22,7 +22,7 @@
 
 class RobotInterface {
    public:
-    RobotInterface(const std::string& config_file);
+    RobotInterface(const std::string& config_file, double control_dt = 0.001);
     ~RobotInterface() {
         if (is_init_.load()) {
             deinit_motors();
@@ -102,7 +102,8 @@ class RobotInterface {
     std::shared_ptr<IMUCfg> imu_cfg_;
     std::shared_ptr<MotorsCfg> motors_cfg_;
     std::shared_ptr<RobotCfg> robot_cfg_;
-    int offline_threshold_ = 25;
+    // A motor is offline only after 100 ms without a feedback frame.
+    int offline_threshold_cycles_ = 100;
     std::shared_ptr<IMUDriver> imu_;
     std::shared_ptr<Decouple> ankle_decouple_;
     Eigen::Matrix3f extrinsic_R_mat_ = Eigen::Matrix3f::Identity();
@@ -111,11 +112,14 @@ class RobotInterface {
     std::vector<float> ang_vel_buf_{0.f, 0.f, 0.f};
     std::vector<std::shared_ptr<MotorDriver>> motors_;
     std::unique_ptr<ThreadPool> thread_pool_;
+    std::vector<float> last_ankle_joint_target_;
     std::vector<size_t> motor_bus_offsets_;
 
-    std::mutex reset_mutex_, command_mutex_, motors_mutex_, joint_mutex_, imu_mutex_;
+    std::mutex reset_mutex_, lifecycle_mutex_, command_mutex_, motors_mutex_, joint_mutex_, imu_mutex_;
     std::vector<float> joint_q_, joint_vel_, joint_tau_;
     std::vector<float> motor_pos_target_, motor_vel_target_, motor_kp_target_, motor_kd_target_, motor_tau_target_;
+    // True when joint_q_/joint_vel_/joint_tau_ contain feedback from the motors.
+    std::atomic<bool> joint_cache_valid_{false};
     std::vector<int> close_chain_joint_idx_, motor2urdf_;
 
     void setup_motors();

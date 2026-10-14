@@ -9,7 +9,8 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(robot_py, m) {
     py::class_<RobotInterface>(m, "RobotInterface")
-        .def(py::init<const std::string&>(), py::arg("config_file"))
+        .def(py::init<const std::string&, double>(),
+             py::arg("config_file"), py::arg("control_dt") = 0.001)
         .def("apply_action", &RobotInterface::apply_action,
              py::arg("p"),
              py::arg("v")   = std::vector<float>{},
@@ -18,7 +19,8 @@ PYBIND11_MODULE(robot_py, m) {
              py::arg("tau") = std::vector<float>{})
         .def("init_motors", &RobotInterface::init_motors)
         .def("deinit_motors", &RobotInterface::deinit_motors)
-        .def("reset_joints", &RobotInterface::reset_joints, py::arg("joint_default_angle"))
+        .def("reset_joints", &RobotInterface::reset_joints, py::arg("joint_default_angle"),
+             py::call_guard<py::gil_scoped_release>())
         .def("set_zeros", &RobotInterface::set_zeros)
         .def("clear_errors", &RobotInterface::clear_errors)
         .def("read_joints", &RobotInterface::read_joints)

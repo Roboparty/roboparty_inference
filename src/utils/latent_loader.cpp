@@ -2,13 +2,14 @@
 // Copyright (C) 2025-2026 Luo1imasi
 
 #include "latent_loader.hpp"
+#include "npz_loader.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
 LatentLoader::LatentLoader(const std::string& latent_file, float gamma, int window_size)
-    : latent_(cnpy::npz_load(latent_file, "z")), gamma_(gamma) {
+    : latent_(roboparty::load_npz(latent_file, "z")), gamma_(gamma) {
     if (latent_.shape.size() != 2 || latent_.shape[0] == 0 || latent_.shape[1] == 0 ||
         latent_.word_size != sizeof(float)) {
         throw std::runtime_error("latent z must be a non-empty float32 [frames, dim] array");
@@ -53,7 +54,7 @@ void LatentLoader::next(std::vector<float>& output) {
     }
 
     if (playing_ && ++frame_ == get_num_frames()) {
-        frame_ = 0;
+        frame_ = get_num_frames() - 1;
         playing_ = false;
     }
 }

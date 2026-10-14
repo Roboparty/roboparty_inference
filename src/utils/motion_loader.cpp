@@ -2,11 +2,12 @@
 // Copyright (C) 2025-2026 Luo1imasi
 
 #include "motion_loader.hpp"
+#include "npz_loader.hpp"
 
 MotionLoader::MotionLoader(const std::string& motion_file) {
     try {
         // 加载 .npz 文件
-        cnpy::npz_t npz_data = cnpy::npz_load(motion_file);
+        cnpy::npz_t npz_data = roboparty::load_npz(motion_file);
         
         // 读取 fps
         if (npz_data.find("fps") == npz_data.end()) {

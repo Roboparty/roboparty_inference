@@ -1,7 +1,7 @@
 inference_node:
     ros__parameters:
-        model_names: ["ufo_d003_ankle40_x8.onnx"]
-        latent_names: ["dance1_subject2_d003_ankle40_x8.npz"]
+        model_names: ["policy_ufo.onnx"]
+        latent_names: ["dance1_subject2.npz"]
         gamma: 0.8
         window_size: 3
         obs_layouts:

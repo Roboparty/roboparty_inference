@@ -239,6 +239,8 @@ class InferenceNode : public rclcpp::Node {
     std::mutex reset_thread_mutex_;
     bool reset_thread_running_ = false;
     float act_alpha_;
+    static constexpr float policy_transition_duration_ = 0.25f;
+    float policy_transition_elapsed_ = policy_transition_duration_;
     float dt_;
     float obs_scales_lin_vel_, obs_scales_ang_vel_, obs_scales_dof_pos_, obs_scales_dof_vel_,
         obs_scales_gravity_b_, clip_observations_;
@@ -266,6 +268,7 @@ class InferenceNode : public rclcpp::Node {
     void apply_action();
     bool start_joint_reset();
     PolicyRuntime& active_policy();
+    void switch_policy(int policy_idx);
 
     void load_config();
     void setup_model(std::unique_ptr<ModelContext>& ctx, std::string model_path, int input_size);

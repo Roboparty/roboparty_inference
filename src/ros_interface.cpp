@@ -381,15 +381,13 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
                     RCLCPP_INFO(this->get_logger(), "Interrupt mode %s", is_interrupt_.load() ? "enabled" : "disabled");
                 });
             } else if (has_motion_policy()) {
-                switch_while_paused([this]() {
-                    std::string policy_name;
+                int policy_idx;
+                {
                     std::unique_lock<std::mutex> lock(mode_mutex_);
-                    is_motion_policy_.store(!is_motion_policy_.load());
-                    active_policy_idx_ = is_motion_policy_.load() ? motion_policy_indices_[current_motion_policy_idx_] : 0;
-                    reset_policy_runtime(active_policy());
-                    policy_name = active_policy().name;
-                    RCLCPP_INFO(this->get_logger(), "Policy enabled: %s", policy_name.c_str());
-                });
+                    policy_idx = is_motion_policy_.load()
+                        ? 0 : motion_policy_indices_[current_motion_policy_idx_];
+                }
+                switch_policy(policy_idx);
             } else if (has_latent_policy()) {
                 switch_while_paused([this]() {
                     std::unique_lock<std::mutex> lock(mode_mutex_);

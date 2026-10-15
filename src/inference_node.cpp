@@ -155,6 +155,7 @@ void InferenceNode::reset_runtime_state() {
     }
     {
         std::unique_lock<std::mutex> lock(act_mutex_);
+        policy_transition_elapsed_ = policy_transition_duration_;
         for (int i = 0; i < joint_num_; i++) {
             act_[i] = static_cast<float>(joint_default_angle_[i]);
             last_act_[i] = static_cast<float>(joint_default_angle_[i]);
@@ -189,6 +190,80 @@ void InferenceNode::request_depth_history_reset() {
 
 InferenceNode::PolicyRuntime& InferenceNode::active_policy() {
     return policies_[active_policy_idx_];
+}
+
+void InferenceNode::switch_policy(int policy_idx) {
+    std::unique_lock<std::mutex> mode_lock(mode_mutex_);
+    std::unique_lock<std::mutex> control_lock(control_mutex_);
+    if (policy_idx < 0 || static_cast<size_t>(policy_idx) >= policies_.size()) {
+        throw std::out_of_range("Policy index out of range: " + std::to_string(policy_idx));
+    }
+    if (policy_idx == active_policy_idx_) {
+        return;
+    }
+    const auto& previous = active_policy();
+    const int previous_idx = active_policy_idx_;
+    active_policy_idx_ = policy_idx;
+    try {
+        auto& policy = active_policy();
+        reset_policy_runtime(policy);
+        std::copy(previous.ctx->output_buffer.begin(), previous.ctx->output_buffer.end(),
+                  policy.ctx->output_buffer.begin());
+        if (!previous.is_first_frame) {
+            update_obs_segments(policy.obs_segments, policy.obs_layout);
+            flatten_obs_segments(policy.obs_segments, policy.obs.begin());
+            std::transform(policy.obs.begin(), policy.obs.end(), policy.obs.begin(), [this](float val) {
+                return std::clamp(val, -clip_observations_, clip_observations_);
+            });
+            const auto current_obs = policy.obs;
+            // Match fields by identity; pad unavailable older frames with the oldest sample.
+            for (int frame = 0; frame < policy.frame_stack; ++frame) {
+                policy.obs = current_obs;
+                const int old_frame = std::max(0, previous.frame_stack - policy.frame_stack + frame);
+                size_t offset = 0;
+                for (const auto& field : policy.obs_layout) {
+                    size_t old_offset = 0;
+                    for (const auto& old_field : previous.obs_layout) {
+                        if (field.source == old_field.source && field.size == old_field.size &&
+                            field.name != "motion_command" && field.name != "latent") {
+                            const bool sparse = !previous.history_gather_plan.empty();
+                            const auto& history = sparse ? previous.obs_history : previous.ctx->input_buffer;
+                            const size_t source_offset = sparse || previous.stack_order == ObsStackOrder::FrameMajor
+                                ? old_frame * previous.obs_num + old_offset
+                                : old_offset * previous.frame_stack + old_frame * old_field.size;
+                            std::copy_n(history.begin() + source_offset, field.size, policy.obs.begin() + offset);
+                            break;
+                        }
+                        old_offset += old_field.size;
+                    }
+                    offset += field.size;
+                }
+                if (!policy.history_gather_plan.empty()) {
+                    update_obs_history(policy.obs_history, policy.obs, policy.obs_num,
+                                       policy.frame_stack, frame == 0);
+                } else {
+                    update_stacked_obs(policy.ctx->input_buffer, policy.obs, policy.obs_num,
+                                       policy.frame_stack, policy.stack_order,
+                                       policy.obs_layout_sizes, frame == 0);
+                }
+            }
+            if (!policy.history_gather_plan.empty()) {
+                gather_sparse_obs_history(policy.ctx->input_buffer, policy.obs_history,
+                                          policy.history_gather_plan);
+            }
+            policy.is_first_frame = false;
+        }
+    } catch (...) {
+        active_policy_idx_ = previous_idx;
+        throw;
+    }
+    is_motion_policy_.store(active_policy().motion_loader != nullptr);
+    {
+        std::unique_lock<std::mutex> action_lock(act_mutex_);
+        act_ = last_act_;
+        policy_transition_elapsed_ = 0.0f;
+    }
+    RCLCPP_INFO(this->get_logger(), "Policy enabled: %s", active_policy().name.c_str());
 }
 
 void InferenceNode::initialize_runtime_state() {
@@ -262,8 +337,17 @@ void InferenceNode::apply_action() {
     }
     {
         std::unique_lock<std::mutex> lock(act_mutex_);
+        float alpha = act_alpha_;
+        if (policy_transition_elapsed_ < policy_transition_duration_) {
+            const float progress = policy_transition_elapsed_ / policy_transition_duration_;
+            const float weight = progress * progress * (3.0f - 2.0f * progress);
+            const float initial_alpha = std::min(act_alpha_, 0.02f);
+            alpha = initial_alpha + weight * (act_alpha_ - initial_alpha);
+            policy_transition_elapsed_ = std::min(
+                policy_transition_elapsed_ + dt_, policy_transition_duration_);
+        }
         for (size_t i = 0; i < act_.size(); i++) {
-            last_act_[i] = act_alpha_ * act_[i] + (1 - act_alpha_) * last_act_[i];
+            last_act_[i] = alpha * act_[i] + (1 - alpha) * last_act_[i];
         }
     }
     robot_->apply_action(last_act_);

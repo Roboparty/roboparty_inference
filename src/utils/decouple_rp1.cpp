@@ -1,12 +1,12 @@
-#include "decouple_rp1.3.hpp"
+#include "decouple_rp1.hpp"
 #include <iostream>
 
 static const Eigen::Vector3d S_BAR(-1.0, 0.0, 0.0);
 
 //////********************link parameters********************//////
-std::vector<LinkParamsRP1_3> DecoupleRP1_3::get_links(bool is_left)
+std::vector<LinkParamsRP1> DecoupleRP1::get_links(bool is_left)
 {
-    std::vector<LinkParamsRP1_3> links(2);
+    std::vector<LinkParamsRP1> links(2);
 
     if (is_left)
     {
@@ -48,17 +48,17 @@ std::vector<LinkParamsRP1_3> DecoupleRP1_3::get_links(bool is_left)
     return links;
 }
 
-DecoupleRP1_3::DecoupleRP1_3()
+DecoupleRP1::DecoupleRP1()
     : links_left_(get_links(true)), links_right_(get_links(false))
 {
 }
 //////********************link parameters********************//////
 
 //////********************inverse kinematics*****************//////
-IKResultRP1_3
-DecoupleRP1_3::inverse_kinematics(double q_pitch, double q_roll, bool is_left)
+IKResultRP1
+DecoupleRP1::inverse_kinematics(double q_pitch, double q_roll, bool is_left)
 {
-    IKResultRP1_3 result;
+    IKResultRP1 result;
     result.THETA = Eigen::Vector2d::Zero();
 
     double sp = std::sin(q_pitch), cp = std::cos(q_pitch);
@@ -155,7 +155,7 @@ DecoupleRP1_3::inverse_kinematics(double q_pitch, double q_roll, bool is_left)
 
 //////********************jacobian***************************//////
 JacobianResult
-DecoupleRP1_3::jacobian(const IKResultRP1_3 &ik_result)
+DecoupleRP1::jacobian(const IKResultRP1 &ik_result)
 {
     const auto &r_bar = ik_result.r_bar;
     const auto &r_rod = ik_result.r_rod;
@@ -180,16 +180,16 @@ DecoupleRP1_3::jacobian(const IKResultRP1_3 &ik_result)
 
 // from joint [pitch, roll] to motor [theta], from S to P
 std::pair<Eigen::Vector2d, JacobianResult>
-DecoupleRP1_3::get_decouple(double pitch, double roll, bool is_left)
+DecoupleRP1::get_decouple(double pitch, double roll, bool is_left)
 {
-    IKResultRP1_3 kinematics = inverse_kinematics(pitch, roll, is_left);
+    IKResultRP1 kinematics = inverse_kinematics(pitch, roll, is_left);
     JacobianResult Jac = jacobian(kinematics);
     return {kinematics.THETA, Jac};
 }
 
 //////********************forward kinematics*****************//////
 ForwardMappingResult
-DecoupleRP1_3::forward_kinematics(const Eigen::Vector2d &thetaRef, bool is_left)
+DecoupleRP1::forward_kinematics(const Eigen::Vector2d &thetaRef, bool is_left)
 {
     ForwardMappingResult mapping_result;
 
@@ -207,12 +207,12 @@ DecoupleRP1_3::forward_kinematics(const Eigen::Vector2d &thetaRef, bool is_left)
         double cur_pitch = x_k[0];
         double cur_roll = x_k[1];
 
-        IKResultRP1_3 kinematics = inverse_kinematics(cur_pitch, cur_roll, is_left);
+        IKResultRP1 kinematics = inverse_kinematics(cur_pitch, cur_roll, is_left);
         Jac = jacobian(kinematics);
 
         if (Jac.J_motor2Joint.hasNaN())
         {
-            std::cerr << "DecoupleRP1_3::forward_kinematics() Jac is nan!!" << std::endl;
+            std::cerr << "DecoupleRP1::forward_kinematics() Jac is nan!!" << std::endl;
             std::cerr << "  pitch=" << cur_pitch << ", roll=" << cur_roll << std::endl;
             mapping_result.ankle_joint_ori = Eigen::Vector2d::Zero();
             mapping_result.Jac = Jac;
@@ -237,7 +237,7 @@ DecoupleRP1_3::forward_kinematics(const Eigen::Vector2d &thetaRef, bool is_left)
 //////********************forward kinematics*****************//////
 
 // from joint [pitch, roll] to motor [theta], from Serial to Parallel
-void DecoupleRP1_3::get_decoupleQVT(Eigen::Vector2d &q, Eigen::Vector2d &vel, Eigen::Vector2d &tau, bool is_left)
+void DecoupleRP1::get_decoupleQVT(Eigen::Vector2d &q, Eigen::Vector2d &vel, Eigen::Vector2d &tau, bool is_left)
 {
     double pitch = q[0]; // rotation axis [0 1 0]
     double roll = q[1];
@@ -248,7 +248,7 @@ void DecoupleRP1_3::get_decoupleQVT(Eigen::Vector2d &q, Eigen::Vector2d &vel, Ei
     tau = motor.second.J_motor2Joint.transpose() * tau;
 }
 
-void DecoupleRP1_3::get_forwardQVT(Eigen::Vector2d &q, Eigen::Vector2d &vel, Eigen::Vector2d &tau, bool is_left)
+void DecoupleRP1::get_forwardQVT(Eigen::Vector2d &q, Eigen::Vector2d &vel, Eigen::Vector2d &tau, bool is_left)
 {
     ForwardMappingResult joint = forward_kinematics(q, is_left);
     q = joint.ankle_joint_ori;

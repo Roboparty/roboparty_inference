@@ -2,14 +2,14 @@
 // Copyright (C) 2025-2026 Luo1imasi
 
 #include "close_chain_mapping.hpp"
-#include "decouple_rp1.3.hpp"
+#include "decouple_rp1.hpp"
 #include "decouple_rpo.hpp"
 
 std::shared_ptr<Decouple> Decouple::create(const std::string &type)
 {
-    if (type == "rp1.3")
+    if (type == "rp1")
     {
-        return std::make_shared<DecoupleRP1_3>();
+        return std::make_shared<DecoupleRP1>();
     }
     else if (type == "rpo")
     {
@@ -18,6 +18,6 @@ std::shared_ptr<Decouple> Decouple::create(const std::string &type)
     else
     {
         throw std::runtime_error("Unknown close_chain type: " + type +
-                                 ". Supported types: rp1.3, rpo");
+                                 ". Supported types: rp1, rpo");
     }
 }

@@ -215,6 +215,9 @@ class InferenceNode : public rclcpp::Node {
    private:
     std::shared_ptr<RobotInterface> robot_;
     std::atomic<bool> is_running_{false}, is_joy_control_{true}, is_interrupt_{false}, is_motion_policy_{false};
+    std::atomic<bool> interrupt_topic_received_{false};
+    bool interrupt_feedback_initialized_ = false;
+    static constexpr float interrupt_feedback_deadband_ = 0.02f;
     std::string robot_config_path_;
     std::string perception_obs_topic_;
     size_t current_motion_policy_idx_ = 0;

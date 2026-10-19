@@ -143,6 +143,8 @@ void InferenceNode::reset_runtime_state() {
     std::unique_lock<std::mutex> mode_lock(mode_mutex_);
     std::unique_lock<std::mutex> control_lock(control_mutex_);
     is_interrupt_.store(false);
+    interrupt_topic_received_.store(false);
+    interrupt_feedback_initialized_ = false;
     is_motion_policy_.store(false);
     active_policy_idx_ = 0;
     {
@@ -441,6 +443,23 @@ void InferenceNode::inference() {
             update_obs_segments(policy.obs_segments, policy.obs_layout);
             publish_imu();
             publish_joint_states();
+            if (supports_interrupt() && is_interrupt_.load() && !interrupt_topic_received_.load() &&
+                joint_pos_buffer_.size() >= interrupt_action_.size()) {
+                std::unique_lock<std::mutex> lock(interrupt_mutex_);
+                const size_t offset = joint_pos_buffer_.size() - interrupt_action_.size();
+                if (!interrupt_feedback_initialized_) {
+                    std::copy(joint_pos_buffer_.begin() + offset, joint_pos_buffer_.end(),
+                              interrupt_action_.begin());
+                    interrupt_feedback_initialized_ = true;
+                } else {
+                    for (size_t i = 0; i < interrupt_action_.size(); ++i) {
+                        const float feedback = joint_pos_buffer_[offset + i];
+                        if (std::abs(feedback - interrupt_action_[i]) > interrupt_feedback_deadband_) {
+                            interrupt_action_[i] = feedback;
+                        }
+                    }
+                }
+            }
             flatten_obs_segments(policy.obs_segments, policy.obs.begin());
 
             std::transform(policy.obs.begin(), policy.obs.end(), policy.obs.begin(), [this](float val) {

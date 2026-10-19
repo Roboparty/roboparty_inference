@@ -443,10 +443,17 @@ void InferenceNode::subs_perception_callback(const std::shared_ptr<std_msgs::msg
 
 void InferenceNode::subs_joint_state_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg){
     if(supports_interrupt() && is_interrupt_.load()){
+        if (msg->position.size() < interrupt_action_.size()) {
+            RCLCPP_WARN(this->get_logger(),
+                        "Interrupt target message too small: got %zu, expected at least %zu",
+                        msg->position.size(), interrupt_action_.size());
+            return;
+        }
         std::unique_lock<std::mutex> lock(interrupt_mutex_);
         for(size_t i = 0; i < interrupt_action_.size(); i++){
             interrupt_action_[i] = msg->position[i];
         }
+        interrupt_topic_received_.store(true);
     }
 }
 

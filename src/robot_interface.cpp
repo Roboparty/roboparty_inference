@@ -150,12 +150,16 @@ void RobotInterface::read_joints() {
         throw std::runtime_error("Motors are not initialized");
     }
     std::unique_lock<std::mutex> lock(joint_mutex_);
-    exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
-        const float sign = static_cast<float>(robot_cfg_->motor_sign_[idx]);
-        joint_q_[motor2urdf_[idx]] = wrap_joint(motor->get_motor_pos() * sign);
-        joint_vel_[motor2urdf_[idx]] = motor->get_motor_spd() * robot_cfg_->motor_sign_[idx];
-        joint_tau_[motor2urdf_[idx]] = motor->get_motor_current() * robot_cfg_->motor_sign_[idx];
-    });
+    {
+        std::unique_lock<std::mutex> motor_lock(motors_mutex_);
+        for (size_t idx = 0; idx < motors_.size(); ++idx) {
+            const auto& motor = motors_[idx];
+            const float sign = static_cast<float>(robot_cfg_->motor_sign_[idx]);
+            joint_q_[motor2urdf_[idx]] = wrap_joint(motor->get_motor_pos() * sign);
+            joint_vel_[motor2urdf_[idx]] = motor->get_motor_spd() * robot_cfg_->motor_sign_[idx];
+            joint_tau_[motor2urdf_[idx]] = motor->get_motor_current() * robot_cfg_->motor_sign_[idx];
+        }
+    }
     throw_if_motors_offline();
 
     if (!close_chain_joint_idx_.empty() && ankle_decouple_) {
@@ -198,15 +202,19 @@ void RobotInterface::apply_action(const std::vector<float>& p,
 
     {
         std::unique_lock<std::mutex> lock(joint_mutex_);
-        exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
-            const float motor_pos = motor->get_motor_pos();
-            const float motor_vel = motor->get_motor_spd();
-            const float motor_tau = motor->get_motor_current();
-            const float sign = static_cast<float>(robot_cfg_->motor_sign_[idx]);
-            joint_q_[motor2urdf_[idx]] = wrap_joint(motor_pos * sign);
-            joint_vel_[motor2urdf_[idx]] = motor_vel * robot_cfg_->motor_sign_[idx];
-            joint_tau_[motor2urdf_[idx]] = motor_tau * robot_cfg_->motor_sign_[idx];
-        });
+        {
+            std::unique_lock<std::mutex> motor_lock(motors_mutex_);
+            for (size_t idx = 0; idx < motors_.size(); ++idx) {
+                const auto& motor = motors_[idx];
+                const float motor_pos = motor->get_motor_pos();
+                const float motor_vel = motor->get_motor_spd();
+                const float motor_tau = motor->get_motor_current();
+                const float sign = static_cast<float>(robot_cfg_->motor_sign_[idx]);
+                joint_q_[motor2urdf_[idx]] = wrap_joint(motor_pos * sign);
+                joint_vel_[motor2urdf_[idx]] = motor_vel * robot_cfg_->motor_sign_[idx];
+                joint_tau_[motor2urdf_[idx]] = motor_tau * robot_cfg_->motor_sign_[idx];
+            }
+        }
         throw_if_motors_offline();
 
         if (use_close_chain_position){
@@ -430,7 +438,7 @@ void RobotInterface::motors_mit_cmd() {
     if (!is_init_.load()) {
         return;
     }
-    thread_pool_->run_parallel(motor_bus_offsets_.size() - 1, [this](size_t bus) {
+    for (size_t bus = 0; bus + 1 < motor_bus_offsets_.size(); ++bus) {
         const size_t start_count = motor_bus_offsets_[bus];
         const size_t end_count = motor_bus_offsets_[bus + 1];
         if (motors_cfg_->motor_interface_type_[bus] == "canfd") {
@@ -462,7 +470,7 @@ void RobotInterface::motors_mit_cmd() {
                                              motor_tau_target_[idx] * sign);
             }
         }
-    });
+    }
 }
 
 void RobotInterface::throw_if_motors_offline() const {

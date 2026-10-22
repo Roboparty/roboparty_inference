@@ -1,16 +1,19 @@
 # SPDX-License-Identifier: GPL-3.0
 # Copyright (C) 2025-2026 Luo1imasi
 
-##launch file
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
+from launch_ros.parameter_descriptions import Parameter
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 import os
 import re
+import shlex
+import sys
 
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
 
 def launch_setup(context, *args, **kwargs):
     robot = LaunchConfiguration("robot").perform(context)
@@ -35,6 +38,31 @@ def launch_setup(context, *args, **kwargs):
     if not os.path.isfile(policy_config):
         raise FileNotFoundError(f"Inference config not found: {policy_config}")
 
+    mode = os.environ.get("ROBOT_CONTROL_ISOLATION", "isolated")
+    if mode not in ("affinity", "isolated"):
+        raise ValueError(f"Unknown ROBOT_CONTROL_ISOLATION: {mode}")
+    # Resolve the deployment layout once; C++ threads apply it themselves.
+    defaults = {"ROBOT_INFERENCE_CPU": 4, "ROBOT_CONTROL_CPU": 5, "ROBOT_CAN_CPU": 6}
+    thread_env = {}
+    for name, default in defaults.items():
+        thread_env[name] = str(int(os.environ.get(name, default)))
+    prefix = None
+    if mode == "isolated":
+        import yaml
+        with open(robot_config) as stream:
+            motors = yaml.safe_load(stream)["motors"]
+        interfaces = set(zip(motors["motor_interface_type"], motors["motor_interface"]))
+        runtime = os.path.join(get_package_prefix("roboparty_inference"),
+                               "lib", "roboparty_inference", "realtime_run.py")
+        command = [sys.executable, runtime,
+                   "--can-count", str(sum(kind == "can" for kind, _ in interfaces)),
+                   "--canfd-count", str(sum(kind == "canfd" for kind, _ in interfaces)),
+                   "--"]
+        if os.geteuid() != 0:
+            command = ["sudo", "-n", "-E", "env",
+                       "LD_LIBRARY_PATH=" + os.environ.get("LD_LIBRARY_PATH", "")] + command
+        prefix = shlex.join(command)
+
     return [
         Node(
             package="roboparty_inference",
@@ -42,16 +70,16 @@ def launch_setup(context, *args, **kwargs):
             name="inference_node",
             parameters=[
                 policy_config,
-                {
-                    "robot_name": robot,
-                    "policy_name": policy,
-                    "robot_config": robot_config,
-                    "model_dir": os.path.join(robot_dir, "models"),
-                    "motion_dir": os.path.join(robot_dir, "motions"),
-                    "latent_dir": os.path.join(robot_dir, "latents"),
-                },
+                Parameter("robot_name", robot, value_type=str),
+                Parameter("policy_name", policy, value_type=str),
+                Parameter("robot_config", robot_config, value_type=str),
+                Parameter("model_dir", os.path.join(robot_dir, "models"), value_type=str),
+                Parameter("motion_dir", os.path.join(robot_dir, "motions"), value_type=str),
+                Parameter("latent_dir", os.path.join(robot_dir, "latents"), value_type=str),
             ],
             output="screen",
+            additional_env=thread_env,
+            prefix=prefix,
             # prefix=["xterm -e gdb -ex run --args"],
         ),
     ]

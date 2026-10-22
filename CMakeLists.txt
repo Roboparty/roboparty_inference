@@ -75,6 +75,8 @@ set_target_properties(inference_node PROPERTIES LINK_FLAGS "-Wl,--no-as-needed")
 
 install(TARGETS inference_node
   RUNTIME DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS scripts/realtime_run.py
+  DESTINATION lib/${PROJECT_NAME})
 
 install(TARGETS robot utils
   ARCHIVE DESTINATION lib

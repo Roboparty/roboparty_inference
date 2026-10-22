@@ -3,6 +3,9 @@
 
 #include "inference_node.hpp"
 
+#include <cstdlib>
+#include <cstring>
+
 void InferenceNode::update_obs_history(std::vector<float>& history,
                                        const std::vector<float>& obs,
                                        int obs_num, int frame_stack,
@@ -355,8 +358,33 @@ void InferenceNode::apply_action() {
     robot_->apply_action(last_act_);
 }
 
+bool InferenceNode::bind_thread_cpu(const char* cpu_env, int default_cpu) {
+    int cpu = default_cpu;
+    if (const char* value = std::getenv(cpu_env)) {
+        char* end = nullptr;
+        const long parsed = std::strtol(value, &end, 10);
+        if (*value >= '0' && *value <= '9' && *end == '\0' && parsed < CPU_SETSIZE) {
+            cpu = static_cast<int>(parsed);
+        } else {
+            RCLCPP_WARN(get_logger(), "Invalid %s='%s'; using CPU%d", cpu_env, value, cpu);
+        }
+    }
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(cpu, &cpuset);
+    const int error = pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
+    if (error != 0) {
+        RCLCPP_ERROR(get_logger(), "%s CPU%d affinity failed: %s", cpu_env, cpu, std::strerror(error));
+    }
+    return error == 0;
+}
+
 void InferenceNode::control() {
     pthread_setname_np(pthread_self(), "control");
+    if (!bind_thread_cpu("ROBOT_CONTROL_CPU", 5)) {
+        rclcpp::shutdown();
+        return;
+    }
     struct sched_param sp{}; sp.sched_priority = 45;
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
         RCLCPP_FATAL(this->get_logger(), "Failed to set realtime priority for control thread");
@@ -388,13 +416,7 @@ void InferenceNode::control() {
 
 void InferenceNode::inference() {
     pthread_setname_np(pthread_self(), "inference");
-    const unsigned int total_cores = std::thread::hardware_concurrency();
-    const unsigned int cpu_id = total_cores > 1 ? total_cores / 2 : 0;
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(cpu_id, &cpuset);
-    if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) != 0) {
-        RCLCPP_FATAL(this->get_logger(), "Failed to bind inference thread to Core %u", cpu_id);
+    if (!bind_thread_cpu("ROBOT_INFERENCE_CPU", 4)) {
         rclcpp::shutdown();
         return;
     }

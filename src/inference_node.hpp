@@ -268,6 +268,7 @@ class InferenceNode : public rclcpp::Node {
     void subs_joint_state_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg);
     void inference();
     void control();
+    bool bind_thread_cpu(const char* cpu_env, int default_cpu);
     void apply_action();
     bool start_joint_reset();
     PolicyRuntime& active_policy();

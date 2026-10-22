@@ -5,7 +5,7 @@ inference_node:
         gamma: 0.8
         window_size: 3
         obs_layouts:
-          - "dof_pos:24@0, dof_vel:24@0, gravity_b:3@0, ang_vel:3@0, last_action:24@0|1|2|3|4, ang_vel:3@1|2|3|4, dof_pos:24@1|2|3|4, dof_vel:24@1|2|3|4, gravity_b:3@1|2|3|4, latent:256@0"
+          - "dof_pos:24@0, dof_vel:24@0, gravity_b:3@0, ang_vel:3@0, last_action:24@0, last_action:24@4|3|2|1, ang_vel:3@4|3|2|1, dof_pos:24@4|3|2|1, dof_vel:24@4|3|2|1, gravity_b:3@4|3|2|1, latent:256@0"
         frame_stacks: [5]
         obs_stack_orders: ["obs_major"]
         act_alpha: 0.33

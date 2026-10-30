@@ -47,11 +47,11 @@ def run_affinity(command):
     return subprocess.call(command, env=env, preexec_fn=prepare_child if os.geteuid() == 0 else None)
 
 
-def isolation_available():
+def isolation_available(needs_cpuset=True):
     if os.geteuid() != 0:
         return False
     try:
-        if "cpuset" not in (CGROUP / "cgroup.controllers").read_text().split():
+        if needs_cpuset and "cpuset" not in (CGROUP / "cgroup.controllers").read_text().split():
             return False
         with os.fdopen(os.open("/dev/cpu_dma_latency", os.O_WRONLY | os.O_CLOEXEC),
                        "wb", buffering=0) as latency:
@@ -88,10 +88,30 @@ def thread_ids(pid, expected):
 
 
 def realtime_run(command, can_count, canfd_count):
-    if not isolation_available():
+    if os.geteuid() != 0:
         return run_affinity(command)
     control_cpu, can_cpu, inference_cpu = (
         int(os.environ[name]) for name in ("ROBOT_CONTROL_CPU", "ROBOT_CAN_CPU", "ROBOT_INFERENCE_CPU"))
+    cpus = [control_cpu, inference_cpu] + ([can_cpu] if can_count or canfd_count else [])
+    if len(set(cpus)) != len(cpus):
+        raise ValueError(f"Isolation CPUs must be distinct: {cpus}")
+    isolated_path = Path("/sys/devices/system/cpu/isolated")
+    isolated = set()
+    if isolated_path.exists():
+        for item in isolated_path.read_text().strip().split(","):
+            if item:
+                bounds = item.split("-")
+                isolated.update(range(int(bounds[0]), int(bounds[-1]) + 1))
+    if not isolation_available(bool(set(cpus) - isolated)):
+        return run_affinity(command)
+
+    # Inherited housekeeping affinity is not the set of CPUs we may bind to.
+    original = os.sched_getaffinity(0)
+    try:
+        for cpu in cpus:
+            os.sched_setaffinity(0, {cpu})
+    finally:
+        os.sched_setaffinity(0, original)
 
     # The guardian owns restoration even if the launch supervisor is killed.
     with open("/run/roboparty-realtime.lock", "w") as lock:
@@ -104,9 +124,8 @@ def realtime_run(command, can_count, canfd_count):
         if can_count or canfd_count:
             groups.append((CGROUP / f"roboparty-can-{os.getpid()}", can_cpu,
                            ("motor_can_rx", "motor_can_tx", "motor_canfd_rx", "motor_canfd_tx")))
-        cpus = [cpu for _, cpu, _ in groups]
-        if len(set(cpus)) != len(cpus) or not set(cpus) <= os.sched_getaffinity(0):
-            raise ValueError(f"Isolation CPUs must be distinct and available: {cpus}")
+        # Only partitions created here belong to the cleanup guardian.
+        dynamic_groups = [group for group in groups if group[1] not in isolated]
         env, uid, gid, user = user_context()
         signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
         previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, signals)
@@ -157,7 +176,7 @@ def realtime_run(command, can_count, canfd_count):
                 deadline = time.monotonic() + seconds
                 while task_identity(child.pid) == identity and time.monotonic() < deadline:
                     time.sleep(0.05)
-            for path, _, _ in reversed(groups):
+            for path, _, _ in reversed(dynamic_groups):
                 if path.exists():
                     partition = path / "cpuset.cpus.partition"
                     if partition.exists():
@@ -190,7 +209,8 @@ def realtime_run(command, can_count, canfd_count):
                         raise RuntimeError(f"Leaving cpuset enabled because another group uses it: {path}")
                 (CGROUP / "cgroup.subtree_control").write_text("-cpuset")
 
-            restore(restore_controller)
+            if dynamic_groups:
+                restore(restore_controller)
             for error in errors:
                 print(f"Realtime cleanup: {error}", file=sys.stderr, flush=True)
             os._exit(1 if errors else 0)
@@ -215,10 +235,11 @@ def realtime_run(command, can_count, canfd_count):
                         }
             threads = thread_ids(child.pid, expected)
             try:
-                (CGROUP / "cgroup.procs").write_text(str(child.pid))
-                if not enabled:
-                    (CGROUP / "cgroup.subtree_control").write_text("+cpuset")
-                for path, cpu, names in groups:
+                if dynamic_groups:
+                    (CGROUP / "cgroup.procs").write_text(str(child.pid))
+                    if not enabled:
+                        (CGROUP / "cgroup.subtree_control").write_text("+cpuset")
+                for path, cpu, names in dynamic_groups:
                     path.mkdir()
                     (path / "cgroup.type").write_text("threaded")
                     (path / "cpuset.mems").write_text((CGROUP / "cpuset.mems.effective").read_text())

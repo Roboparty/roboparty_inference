@@ -317,6 +317,9 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
                 robot_->deinit_motors();
                 RCLCPP_INFO(this->get_logger(), "Motors deinitialized");
             } else {
+                if (reset_thread_.joinable()) {
+                    reset_thread_.join();
+                }
                 robot_->init_motors();
                 RCLCPP_INFO(this->get_logger(), "Motors initialized");
             }
@@ -338,11 +341,14 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
         }
     }
     if (msg->buttons[1] == 1 && msg->buttons[1] != last_button2_) {
+        std::lock_guard<std::mutex> lock(reset_thread_mutex_);
         if (is_running_.load()) {
             is_running_.store(false);
             RCLCPP_INFO(this->get_logger(), "Inference paused");
         } else if (!robot_->is_init_.load()) {
             RCLCPP_WARN(this->get_logger(), "Motors are not initialized, cannot start inference");
+        } else if (reset_thread_running_ || !robot_->reset_completed_.load()) {
+            RCLCPP_WARN(this->get_logger(), "Complete motor reset before starting inference");
         } else {
             is_running_.store(true);
             RCLCPP_INFO(this->get_logger(), "Inference started");
@@ -592,6 +598,9 @@ void InferenceNode::clear_errors_srv(const std::shared_ptr<std_srvs::srv::Trigge
 void InferenceNode::init_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                     std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
     try {
+        if (!robot_->is_init_.load() && reset_thread_.joinable()) {
+            reset_thread_.join();
+        }
         robot_->init_motors();
         response->success = true;
         response->message = "Motors initialized successfully";
@@ -628,6 +637,12 @@ void InferenceNode::start_inference_srv(const std::shared_ptr<std_srvs::srv::Tri
         response->success = false;
         response->message = "Motors are not initialized, cannot start inference";
         RCLCPP_WARN(this->get_logger(), "%s", response->message.c_str());
+        return;
+    }
+    std::lock_guard<std::mutex> lock(reset_thread_mutex_);
+    if (reset_thread_running_ || !robot_->reset_completed_.load()) {
+        response->success = false;
+        response->message = "Complete motor reset before starting inference";
         return;
     }
     is_running_.store(true);

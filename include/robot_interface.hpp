@@ -97,6 +97,7 @@ class RobotInterface {
     }
 
     std::atomic<bool> is_init_{false};
+    std::atomic<bool> reset_completed_{false};
 
    private:
     std::shared_ptr<IMUCfg> imu_cfg_;
@@ -118,12 +119,13 @@ class RobotInterface {
     std::mutex reset_mutex_, lifecycle_mutex_, command_mutex_, motors_mutex_, joint_mutex_, imu_mutex_;
     std::vector<float> joint_q_, joint_vel_, joint_tau_;
     std::vector<float> motor_pos_target_, motor_vel_target_, motor_kp_target_, motor_kd_target_, motor_tau_target_;
-    // True when joint_q_/joint_vel_/joint_tau_ contain feedback from the motors.
-    std::atomic<bool> joint_cache_valid_{false};
+    // Protected by command_mutex_; refresh may send a zero MIT command.
+    bool control_started_ = false;
     std::vector<int> close_chain_joint_idx_, motor2urdf_;
 
     void setup_motors();
     void setup_imu();
+    void refresh_joints_impl();
 
     template <typename F>
     void exec_motors_parallel(F&& cmd_func) {

@@ -355,7 +355,7 @@ void InferenceNode::apply_action() {
             last_act_[i] = alpha * act_[i] + (1 - alpha) * last_act_[i];
         }
     }
-    robot_->apply_action(last_act_);
+    robot_->apply_action(last_act_, {}, joint_kp_, joint_kd_);
 }
 
 bool InferenceNode::bind_thread_cpu(const char* cpu_env, int default_cpu) {

@@ -19,3 +19,6 @@ debian/.debhelper/
 # source ignore
 thirdparty/yaml-cpp-0.9.0
 thirdparty/onnxruntime*/
+
+# Python bytecode caches
+__pycache__/

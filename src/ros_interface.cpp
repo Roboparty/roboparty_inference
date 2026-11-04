@@ -105,6 +105,27 @@ void InferenceNode::load_config() {
     int latent_window_size = 1;
     this->get_parameter("window_size", latent_window_size);
 
+    if (usd2urdf_.size() != static_cast<size_t>(joint_num_)) {
+        throw std::runtime_error("usd2urdf must contain joint_num entries");
+    }
+    const auto load_gain = [&](const char* name, bool stiffness) {
+        const auto values = this->declare_parameter<std::vector<double>>(name, std::vector<double>{});
+        if (values.size() != static_cast<size_t>(joint_num_)) {
+            throw std::runtime_error(std::string(name) + " must contain joint_num values");
+        }
+        std::vector<float> gains(joint_num_);
+        for (int i = 0; i < joint_num_; ++i) {
+            if (!std::isfinite(values[i]) || (stiffness ? values[i] <= 0.0 : values[i] < 0.0)) {
+                throw std::runtime_error(std::string(name) + (stiffness
+                    ? " must be finite and positive" : " must be finite and non-negative"));
+            }
+            gains[i] = static_cast<float>(values[i]);
+        }
+        return gains;
+    };
+    joint_kp_ = load_gain("kp", true);
+    joint_kd_ = load_gain("kd", false);
+
     policies_.clear();
     motion_policy_indices_.clear();
     perception_obs_num_ = 0;
@@ -478,10 +499,11 @@ bool InferenceNode::start_joint_reset() {
     reset_thread_running_ = true;
     try {
         reset_thread_ = std::thread([
-            this, robot = robot_, joint_default_angle = joint_default_angle_, logger = this->get_logger()
+            this, robot = robot_, joint_default_angle = joint_default_angle_, logger = this->get_logger(),
+            kp = joint_kp_, kd = joint_kd_
         ]() {
             try {
-                robot->reset_joints(joint_default_angle);
+                robot->reset_joints(joint_default_angle, kp, kd);
                 if (robot->is_init_.load()) {
                     RCLCPP_INFO(logger, "Motors reset");
                 } else {

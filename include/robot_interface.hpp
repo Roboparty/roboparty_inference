@@ -44,17 +44,18 @@ class RobotInterface {
     };
     struct RobotCfg{
         std::vector<long int> close_chain_motor_idx_, motor_sign_, urdf2motor_;
-        std::vector<double> kp_, kd_, extrinsic_R_;
+        std::vector<double> extrinsic_R_;
     };
 
     void apply_action(const std::vector<float>& p,
-                      const std::vector<float>& v = {},
-                      const std::vector<float>& kp = {},
-                      const std::vector<float>& kd = {},
+                      const std::vector<float>& v,
+                      const std::vector<float>& kp,
+                      const std::vector<float>& kd,
                       const std::vector<float>& tau = {});
     void init_motors();
     void deinit_motors();
-    void reset_joints(std::vector<double> joint_default_angle);
+    void reset_joints(std::vector<double> joint_default_angle,
+                      const std::vector<float>& kp, const std::vector<float>& kd);
     void set_zeros();
     void clear_errors();
     void read_joints();

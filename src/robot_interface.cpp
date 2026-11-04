@@ -55,8 +55,6 @@ RobotInterface::RobotInterface(const std::string& config_file, double control_dt
     robot_cfg_ = std::make_shared<RobotCfg>();
     if (config["robot"]) {
         YAML::Node robot_node = config["robot"];
-        if (robot_node["kp"]) robot_cfg_->kp_ = robot_node["kp"].as<std::vector<double>>();
-        if (robot_node["kd"]) robot_cfg_->kd_ = robot_node["kd"].as<std::vector<double>>();
         if (robot_node["close_chain_motor_idx"]) robot_cfg_->close_chain_motor_idx_ = robot_node["close_chain_motor_idx"].as<std::vector<long int>>();
         if (robot_node["motor_sign"]) robot_cfg_->motor_sign_ = robot_node["motor_sign"].as<std::vector<long int>>();
         if (robot_node["urdf2motor"]) robot_cfg_->urdf2motor_ = robot_node["urdf2motor"].as<std::vector<long int>>();
@@ -188,6 +186,14 @@ void RobotInterface::read_imu() {
     Eigen::Map<Eigen::Vector3f>(ang_vel_buf_.data()) = omega_body;
 }
 
+static void validate_gains(const std::vector<float>& kp, const std::vector<float>& kd, size_t count) {
+    if (kp.size() != count || kd.size() != count ||
+        !std::all_of(kp.begin(), kp.end(), [](float x) { return std::isfinite(x) && x > 0; }) ||
+        !std::all_of(kd.begin(), kd.end(), [](float x) { return std::isfinite(x) && x >= 0; })) {
+        throw std::invalid_argument("Supply one finite positive kp and non-negative kd per joint");
+    }
+}
+
 void RobotInterface::apply_action(const std::vector<float>& p,
                                   const std::vector<float>& v,
                                   const std::vector<float>& kp,
@@ -197,6 +203,7 @@ void RobotInterface::apply_action(const std::vector<float>& p,
     if(!is_init_.load()){
         return;
     }
+    validate_gains(kp, kd, motors_.size());
     const bool use_close_chain_position = !close_chain_joint_idx_.empty() && ankle_decouple_;
     control_started_ = true;
 
@@ -219,12 +226,10 @@ void RobotInterface::apply_action(const std::vector<float>& p,
 
         if (use_close_chain_position){
             auto kp_cc = [&](size_t i) -> double {
-                return kp.empty() ? robot_cfg_->kp_[robot_cfg_->close_chain_motor_idx_[i]]
-                                  : static_cast<double>(kp[close_chain_joint_idx_[i]]);
+                return static_cast<double>(kp[close_chain_joint_idx_[i]]);
             };
             auto kd_cc = [&](size_t i) -> double {
-                return kd.empty() ? robot_cfg_->kd_[robot_cfg_->close_chain_motor_idx_[i]]
-                                  : static_cast<double>(kd[close_chain_joint_idx_[i]]);
+                return static_cast<double>(kd[close_chain_joint_idx_[i]]);
             };
             auto vel_target_cc = [&](size_t i) -> double {
                 return v.empty() ? 0.0 : static_cast<double>(v[close_chain_joint_idx_[i]]);
@@ -279,8 +284,8 @@ void RobotInterface::apply_action(const std::vector<float>& p,
             const size_t ji = motor2urdf_[i];
             motor_pos_target_[i] = p[ji];
             motor_vel_target_[i] = v.empty() ? 0.0f : v[ji];
-            motor_kp_target_[i]  = kp.empty() ? static_cast<float>(robot_cfg_->kp_[i]) : kp[ji];
-            motor_kd_target_[i]  = kd.empty() ? static_cast<float>(robot_cfg_->kd_[i]) : kd[ji];
+            motor_kp_target_[i]  = kp[ji];
+            motor_kd_target_[i]  = kd[ji];
             motor_tau_target_[i] = tau.empty() ? 0.0f : tau[ji];
         }
         if (use_close_chain_position) {
@@ -296,12 +301,14 @@ void RobotInterface::apply_action(const std::vector<float>& p,
     motors_mit_cmd();
 }
 
-void RobotInterface::reset_joints(std::vector<double> joint_default_angle) {
+void RobotInterface::reset_joints(std::vector<double> joint_default_angle,
+                                  const std::vector<float>& kp, const std::vector<float>& kd) {
     std::unique_lock<std::mutex> reset_lock(reset_mutex_, std::try_to_lock);
     if (!reset_lock.owns_lock()) {
         throw std::runtime_error("Joint reset is already in progress");
     }
     std::unique_lock<std::mutex> command_lock(command_mutex_);
+    validate_gains(kp, kd, motors_.size());
     if (joint_default_angle.size() != motors_.size() ||
         !std::all_of(joint_default_angle.begin(), joint_default_angle.end(),
                      [](double value) { return std::isfinite(value); })) {
@@ -353,8 +360,8 @@ void RobotInterface::reset_joints(std::vector<double> joint_default_angle) {
             for (size_t i = 0; i < motor_pos_target_.size(); i++){
                 motor_pos_target_[i] = static_cast<float>(joint_target[motor2urdf_[i]]);
                 motor_vel_target_[i] = 0.0f;
-                motor_kp_target_[i]  = static_cast<float>(robot_cfg_->kp_[i]) * (1.0f / 2.5f);
-                motor_kd_target_[i]  = static_cast<float>(robot_cfg_->kd_[i]);
+                motor_kp_target_[i]  = kp[motor2urdf_[i]] * (1.0f / 2.5f);
+                motor_kd_target_[i]  = kd[motor2urdf_[i]];
                 motor_tau_target_[i] = 0.0f;
             }
         }
@@ -369,7 +376,7 @@ void RobotInterface::reset_joints(std::vector<double> joint_default_angle) {
     {
         std::unique_lock<std::mutex> lock(motors_mutex_);
         for (size_t i = 0; i < motor_kp_target_.size(); i++){
-            motor_kp_target_[i] = static_cast<float>(robot_cfg_->kp_[i]);
+            motor_kp_target_[i] = kp[motor2urdf_[i]];
         }
     }
     motors_mit_cmd();

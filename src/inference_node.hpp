@@ -250,6 +250,7 @@ class InferenceNode : public rclcpp::Node {
     float clip_actions_;
     float action_rescale_ = 1.0f;
     std::vector<double> action_scale_, clip_cmd_, joint_default_angle_, joint_limits_;
+    std::vector<float> joint_kp_, joint_kd_;
     std::vector<long int> usd2urdf_;
     float gravity_z_upper_;
     int last_button0_ = 0, last_button1_ = 0, last_button2_ = 0, last_button3_ = 0, last_button4_ = 0, last_button5_ = 0;

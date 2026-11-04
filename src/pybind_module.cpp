@@ -13,13 +13,14 @@ PYBIND11_MODULE(robot_py, m) {
              py::arg("config_file"), py::arg("control_dt") = 0.001)
         .def("apply_action", &RobotInterface::apply_action,
              py::arg("p"),
-             py::arg("v")   = std::vector<float>{},
-             py::arg("kp")  = std::vector<float>{},
-             py::arg("kd")  = std::vector<float>{},
+             py::arg("v"),
+             py::arg("kp"),
+             py::arg("kd"),
              py::arg("tau") = std::vector<float>{})
         .def("init_motors", &RobotInterface::init_motors)
         .def("deinit_motors", &RobotInterface::deinit_motors)
         .def("reset_joints", &RobotInterface::reset_joints, py::arg("joint_default_angle"),
+             py::arg("kp"), py::arg("kd"),
              py::call_guard<py::gil_scoped_release>())
         .def("set_zeros", &RobotInterface::set_zeros)
         .def("clear_errors", &RobotInterface::clear_errors)

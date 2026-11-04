@@ -1,6 +1,6 @@
 inference_node:
     ros__parameters:
-        model_names: ["amp_run3m_13500.onnx"]
+        model_names: ["policy_amp.onnx"]
         obs_layouts:
           - "ang_vel:3, gravity_b:3, cmd_vel:3, dof_pos:24, dof_vel:24, last_action:24"
         frame_stacks: [3]

@@ -1,15 +1,6 @@
-# soft.yaml - RP1 柔顺交互策略 (AMP + 力估计)
-#
-# 用法: 机器人行走/站立时, 可以牵着机器人的手部带它移动,
-#       也可以抓住肩部带它原地转向; 策略会顺从外力, 而不是硬顶。
-#       松手后会回到站立/跟随手柄指令。
-#
-# 模型: soft_25000.onnx, 单输入 obs[1,648] = 8 帧 x 81 维, 输出 actions[1,24]
-#       力估计器已融合在 ONNX 图内, 部署端无需额外输入。
-#
 inference_node:
     ros__parameters:
-        model_names: ["soft_25000.onnx"]
+        model_names: ["policy_soft.onnx"]
         obs_layouts:
           - "ang_vel:3, gravity_b:3, cmd_vel:3, dof_pos:24, dof_vel:24, last_action:24"
         frame_stacks: [8]

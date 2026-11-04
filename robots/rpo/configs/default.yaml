@@ -15,9 +15,7 @@ inference_node:
         obs_scales_dof_pos: 1.0
         obs_scales_dof_vel: 1.0
         obs_scales_gravity_b: 1.0
-        clip_observations: 100.0
         action_scale: [0.25]
-        clip_actions: 100.0
         usd2urdf: [0, 6, 12, 1, 7, 13, 18, 2, 8, 14, 19, 3, 9, 15, 20, 4, 10, 16, 21, 5, 11, 17, 22]
         clip_cmd: 
             [-0.4, 0.6,

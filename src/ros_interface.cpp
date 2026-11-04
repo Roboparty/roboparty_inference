@@ -31,9 +31,10 @@ void InferenceNode::load_config() {
     this->declare_parameter<float>("obs_scales_dof_pos", 1.0);
     this->declare_parameter<float>("obs_scales_dof_vel", 1.0);
     this->declare_parameter<float>("obs_scales_gravity_b", 1.0);
-    this->declare_parameter<float>("clip_observations", 100.0);
+    // Observation/action clipping is off unless a policy config sets a limit.
+    this->declare_parameter<float>("clip_observations", std::numeric_limits<float>::infinity());
     this->declare_parameter<std::vector<double>>("action_scale", std::vector<double>{0.3});
-    this->declare_parameter<float>("clip_actions", 18.0);
+    this->declare_parameter<float>("clip_actions", std::numeric_limits<float>::infinity());
     this->declare_parameter<double>("action_rescale", 1.0);
     this->declare_parameter<std::vector<long int>>("usd2urdf", std::vector<long int>{});
     this->declare_parameter<std::vector<double>>(

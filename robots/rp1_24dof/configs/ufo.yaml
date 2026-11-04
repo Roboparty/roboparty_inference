@@ -18,7 +18,6 @@ inference_node:
         obs_scales_dof_pos: 1.0
         obs_scales_dof_vel: 1.0
         obs_scales_gravity_b: 1.0
-        clip_observations: 100.0
         action_rescale: 8.0
         action_scale:
             [0.40, 0.40, 0.40, 0.40, 0.40, 0.40,

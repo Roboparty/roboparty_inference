@@ -87,8 +87,6 @@ install(DIRECTORY launch
 install(DIRECTORY robots
   DESTINATION share/${PROJECT_NAME}
 )
-install(FILES ${ONNXRUNTIME_LIB_FILE} ${ONNXRUNTIME_LIB_FILE}.1 ${ONNXRUNTIME_LIB_FILE}.1.21.0
-        DESTINATION lib)
 
 set(PYTHON_INSTALL_DIR "lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages")
 

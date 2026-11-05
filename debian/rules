@@ -41,11 +41,5 @@ override_dh_install:
 		find debian/$(PKG_NAME)/opt/roboparty/share/roboparty_inference/robots -type f \( -name "*.yaml" -o -name "*.onnx" -o -name "*.npz" \) -exec chmod 644 {} \; ; \
 	fi
 	
-	# Fix onnxruntime symlinks
-	if [ -f "debian/$(PKG_NAME)/opt/roboparty/lib/libonnxruntime.so.1.21.0" ]; then \
-		ln -sf libonnxruntime.so.1.21.0 debian/$(PKG_NAME)/opt/roboparty/lib/libonnxruntime.so.1; \
-		ln -sf libonnxruntime.so.1.21.0 debian/$(PKG_NAME)/opt/roboparty/lib/libonnxruntime.so; \
-	fi
-	
 	# Remove helper scripts
 	rm -f debian/$(PKG_NAME)/opt/roboparty/bin/mat2npz debian/$(PKG_NAME)/opt/roboparty/bin/npy2mat debian/$(PKG_NAME)/opt/roboparty/bin/npz2mat

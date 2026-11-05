@@ -86,9 +86,10 @@ jobs:
           
           echo ">>> Downloading latest ${{ matrix.arch }} releases..."
           
-          gh release download --repo Roboparty/roboparty_base   --pattern "*all.deb" || echo "Failed roboparty_base"
-          gh release download --repo Roboparty/roboparty_imu    --pattern "*${{ matrix.arch }}.deb" || echo "Failed roboparty_imu"
-          gh release download --repo Roboparty/roboparty_motors --pattern "*${{ matrix.arch }}.deb" || echo "Failed roboparty_motors"
+          gh release download --repo Roboparty/roboparty_base        --pattern "*all.deb" || echo "Failed roboparty_base"
+          gh release download --repo Roboparty/roboparty_imu         --pattern "*${{ matrix.arch }}.deb" || echo "Failed roboparty_imu"
+          gh release download --repo Roboparty/roboparty_motors      --pattern "*${{ matrix.arch }}.deb" || echo "Failed roboparty_motors"
+          gh release download --repo Roboparty/roboparty_onnxruntime --pattern "*${{ matrix.arch }}.deb" || echo "Failed roboparty_onnxruntime"
           
           ls -lh
 

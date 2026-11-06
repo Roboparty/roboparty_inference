@@ -72,6 +72,9 @@ target_link_libraries(inference_node PUBLIC ${PUBLIC_DEPENDENCIES} utils cnpy ro
 ament_target_dependencies(inference_node PUBLIC rclcpp std_msgs sensor_msgs geometry_msgs std_srvs)
 
 set_target_properties(inference_node PROPERTIES LINK_FLAGS "-Wl,--no-as-needed")
+if(ONNXRUNTIME_BUNDLED)
+  set_target_properties(inference_node PROPERTIES INSTALL_RPATH "$ORIGIN/onnxruntime")
+endif()
 
 install(TARGETS inference_node
   RUNTIME DESTINATION lib/${PROJECT_NAME})

@@ -3,6 +3,9 @@ name: Build RoboParty Inference Deb Package
 on:
   push:
 
+env:
+  ROS_DISTRO: ${{ vars.ROS_DISTRO || 'jazzy' }}
+
 jobs:
   build:
     strategy:
@@ -50,11 +53,11 @@ jobs:
 
           echo "✅ Tag matches changelog: v$TAG_VERSION"
 
-      - name: Setup ROS 2 Jazzy
+      - name: Setup ROS 2
         if: matrix.arch == 'amd64'
         uses: ros-tooling/setup-ros@v0.7
         with:
-          required-ros-distributions: jazzy
+          required-ros-distributions: ${{ vars.ROS_DISTRO || 'jazzy' }}
 
       - name: Cache APT packages
         uses: actions/cache@v4
@@ -72,7 +75,7 @@ jobs:
             -o dir::cache::archives="$PWD/apt-cache" \
             build-essential cmake ccache dpkg-dev debhelper devscripts \
             git wget python3-pip python3-vcstool \
-            libboost-all-dev libspdlog-dev libfmt-dev python3-dev pybind11-dev gh
+            libboost-all-dev libspdlog-dev libfmt-dev libyaml-cpp-dev python3-dev pybind11-dev gh
           
           # Fix permissions for cache saving
           sudo chown -R $(id -u):$(id -g) apt-cache
@@ -100,7 +103,7 @@ jobs:
       - name: Build deb package
         run: |
           # Source ROS 2 explicitly to be safe
-          . /opt/ros/jazzy/setup.sh
+          . /opt/ros/${ROS_DISTRO}/setup.sh
           dpkg-buildpackage -us -uc -b
           mv ../*.deb .
           VERSION=$(dpkg-parsechangelog -S Version | cut -d'-' -f1 || echo "unknown")

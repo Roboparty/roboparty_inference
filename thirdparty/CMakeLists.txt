@@ -37,29 +37,30 @@ set(ONNXRUNTIME_INCLUDE_DIR ${ONNXRUNTIME_INCLUDE_DIR} PARENT_SCOPE)
 set(ONNXRUNTIME_LIB_DIR ${ONNXRUNTIME_LIB_DIR} PARENT_SCOPE)
 set(ONNXRUNTIME_LIB_FILE ${ONNXRUNTIME_LIB_FILE} PARENT_SCOPE)
 
-# --- yaml-cpp ---
-set(YAML_CPP_TGZ "${CMAKE_CURRENT_LIST_DIR}/yaml-cpp-0.9.0.tar.gz")
-if(EXISTS "${YAML_CPP_TGZ}")
-    message(STATUS "yaml-cpp: using local tarball ${YAML_CPP_TGZ}")
+# --- yaml-cpp (fallback when the system package is unavailable) ---
+if(NOT yaml-cpp_FOUND AND NOT TARGET yaml-cpp::yaml-cpp AND NOT TARGET yaml-cpp)
+    set(YAML_CPP_TGZ "${CMAKE_CURRENT_LIST_DIR}/yaml-cpp-0.9.0.tar.gz")
+    set(YAML_CPP_URL "https://github.com/jbeder/yaml-cpp/releases/download/yaml-cpp-0.9.0/yaml-cpp-yaml-cpp-0.9.0.tar.gz")
+
+    if(EXISTS "${YAML_CPP_TGZ}")
+        message(STATUS "yaml-cpp: system package not found, using local tarball ${YAML_CPP_TGZ}")
+        set(YAML_CPP_URL "${YAML_CPP_TGZ}")
+    else()
+        message(STATUS "yaml-cpp: system package not found, downloading from GitHub")
+    endif()
+
+    set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
     FetchContent_Declare(
         yaml-cpp
-        URL      "${YAML_CPP_TGZ}"
+        URL      "${YAML_CPP_URL}"
         URL_HASH SHA256=298593d9c440fd9034b8b193d96318b76d49bc97c6ceadb7b0836edf0b6d7539
+        SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/yaml-cpp-0.9.0"
     )
-else()
-    message(STATUS "yaml-cpp: downloading from GitHub")
-    FetchContent_Declare(
-        yaml-cpp
-        URL      https://github.com/jbeder/yaml-cpp/releases/download/yaml-cpp-0.9.0/yaml-cpp-yaml-cpp-0.9.0.tar.gz
-        URL_HASH SHA256=298593d9c440fd9034b8b193d96318b76d49bc97c6ceadb7b0836edf0b6d7539
-    )
+    FetchContent_MakeAvailable(yaml-cpp)
 endif()
-set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-option(YAML_BUILD_SHARED_LIBS "Build shared library" OFF)
-option(YAML_CPP_BUILD_TESTS "Build tests" OFF)
-option(YAML_CPP_BUILD_TOOLS "Build tools" OFF)
-FetchContent_MakeAvailable(yaml-cpp)
 
 # --- cnpy ---
 find_package(ZLIB REQUIRED)
@@ -77,10 +78,3 @@ install(TARGETS "cnpy-static" ARCHIVE DESTINATION lib)
 install(FILES "cnpy/cnpy.h" DESTINATION include)
 
 set(CNPY_INCLUDE_DIR "${CMAKE_CURRENT_LIST_DIR}/cnpy" PARENT_SCOPE)
-
-# Don't build yaml-cpp tools (sandbox, parse, read)
-foreach(_tgt yaml-cpp-sandbox yaml-cpp-parse yaml-cpp-read)
-    if(TARGET ${_tgt})
-        set_target_properties(${_tgt} PROPERTIES EXCLUDE_FROM_ALL TRUE)
-    endif()
-endforeach()

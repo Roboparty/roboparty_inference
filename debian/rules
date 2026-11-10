@@ -1,10 +1,17 @@
 #!/usr/bin/make -f
+
+INSTALL_PREFIX ?= /opt/roboparty
+ROS_DISTRO ?= jazzy
+ROS_SETUP ?= /opt/ros/$(ROS_DISTRO)
+PYTHON_VERSION ?= 3.12
 export DH_VERBOSE = 1
 export DEB_BUILD_MAINT_OPTIONS = optimize=-lto
-export AMENT_PREFIX_PATH=/opt/ros/jazzy
-export CMAKE_PREFIX_PATH=/opt/roboparty:/opt/ros/jazzy
-export PYTHONPATH=/opt/ros/jazzy/lib/python3.12/site-packages:/opt/ros/jazzy/local/lib/python3.12/dist-packages
-export LD_LIBRARY_PATH := /opt/ros/jazzy/lib:$(LD_LIBRARY_PATH)
+export ROS_DISTRO
+export ROS_SETUP
+export AMENT_PREFIX_PATH = $(ROS_SETUP)
+export CMAKE_PREFIX_PATH = $(INSTALL_PREFIX):$(ROS_SETUP)
+export PYTHONPATH = $(ROS_SETUP)/lib/python$(PYTHON_VERSION)/site-packages:$(ROS_SETUP)/local/lib/python$(PYTHON_VERSION)/dist-packages
+export LD_LIBRARY_PATH := $(ROS_SETUP)/lib$(if $(LD_LIBRARY_PATH),:$(LD_LIBRARY_PATH))
 export CCACHE_DISABLE = 1
 
 PKG_NAME = roboparty-inference
@@ -22,24 +29,23 @@ override_dh_auto_configure:
 	esac; \
 	if [ ! -d "thirdparty/onnxruntime" ] && [ -f "$$onnx_archive" ]; then \
 		mkdir -p "thirdparty/onnxruntime" && tar xzf "$$onnx_archive" -C "thirdparty/onnxruntime" --strip-components=1; \
-	fi
+	fi; \
 	if [ ! -d "thirdparty/yaml-cpp-0.9.0" ] && [ -f "thirdparty/yaml-cpp-0.9.0.tar.gz" ]; then \
 		mkdir -p "thirdparty/yaml-cpp-0.9.0" && tar xzf "thirdparty/yaml-cpp-0.9.0.tar.gz" -C "thirdparty/yaml-cpp-0.9.0" --strip-components=1; \
 	fi
 	
 	dh_auto_configure -- \
-		-DCMAKE_INSTALL_PREFIX=/opt/roboparty \
-		-DCMAKE_PREFIX_PATH="/opt/roboparty;/opt/ros/jazzy" \
-		-DFETCHCONTENT_SOURCE_DIR_YAML-CPP="$$(pwd)/thirdparty/yaml-cpp-0.9.0" \
+		-DCMAKE_INSTALL_PREFIX=$(INSTALL_PREFIX) \
+		-DCMAKE_PREFIX_PATH="$(INSTALL_PREFIX);$(ROS_SETUP)" \
 		-DCMAKE_BUILD_TYPE=Release
 
 override_dh_install:
 	dh_install
 	
 	# robot profiles
-	if [ -d "debian/$(PKG_NAME)/opt/roboparty/share/roboparty_inference/robots" ]; then \
-		find debian/$(PKG_NAME)/opt/roboparty/share/roboparty_inference/robots -type f \( -name "*.yaml" -o -name "*.onnx" -o -name "*.npz" \) -exec chmod 644 {} \; ; \
+	if [ -d "debian/$(PKG_NAME)$(INSTALL_PREFIX)/share/roboparty_inference/robots" ]; then \
+		find debian/$(PKG_NAME)$(INSTALL_PREFIX)/share/roboparty_inference/robots -type f \( -name "*.yaml" -o -name "*.onnx" -o -name "*.npz" \) -exec chmod 644 {} \; ; \
 	fi
 	
 	# Remove helper scripts
-	rm -f debian/$(PKG_NAME)/opt/roboparty/bin/mat2npz debian/$(PKG_NAME)/opt/roboparty/bin/npy2mat debian/$(PKG_NAME)/opt/roboparty/bin/npz2mat
+	rm -f debian/$(PKG_NAME)$(INSTALL_PREFIX)/bin/mat2npz debian/$(PKG_NAME)$(INSTALL_PREFIX)/bin/npy2mat debian/$(PKG_NAME)$(INSTALL_PREFIX)/bin/npz2mat

@@ -17,6 +17,7 @@
   <depend>std_srvs</depend>
   <depend>roboparty_imu</depend>
   <depend>roboparty_motors</depend>
+  <depend>yaml-cpp</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

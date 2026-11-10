@@ -4,6 +4,7 @@ Priority: optional
 Maintainer: RoboParty <ZhihaoLiu_hit@163.com>
 Build-Depends: debhelper-compat (= 12), cmake, pkg-config,
                libspdlog-dev, libfmt-dev, libboost-all-dev,
+               libyaml-cpp-dev,
                python3-dev, pybind11-dev,
                roboparty-motors, roboparty-imu
 

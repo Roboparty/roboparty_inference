@@ -3,7 +3,6 @@
 
 #include "inference_node.hpp"
 
-#include <cmath>
 #include <limits>
 
 void InferenceNode::load_config() {
@@ -43,7 +42,6 @@ void InferenceNode::load_config() {
     this->declare_parameter<std::vector<double>>("joint_default_angle", std::vector<double>{});
     this->declare_parameter<std::vector<double>>("joint_limits", std::vector<double>{});
     this->declare_parameter<float>("gravity_z_upper", -0.5);
-    this->declare_parameter<float>("cmd_timeout_s", 0.2f);
     this->declare_parameter<double>("gamma", 0.8);
     this->declare_parameter<int>("window_size", 1);
     std::vector<std::string> model_names;
@@ -103,10 +101,6 @@ void InferenceNode::load_config() {
     this->get_parameter("joint_default_angle", joint_default_angle_);
     this->get_parameter("joint_limits", joint_limits_);
     this->get_parameter("gravity_z_upper", gravity_z_upper_);
-    this->get_parameter("cmd_timeout_s", cmd_timeout_s_);
-    if (!std::isfinite(cmd_timeout_s_) || cmd_timeout_s_ <= 0.0f) {
-        throw std::runtime_error("cmd_timeout_s must be a positive finite number");
-    }
     double latent_gamma = 0.8;
     this->get_parameter("gamma", latent_gamma);
     int latent_window_size = 1;
@@ -323,25 +317,8 @@ void InferenceNode::load_config() {
 }
 
 void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg) {
-    // Reject incomplete or non-finite input instead of indexing past the end.
-    if (msg->axes.size() < 6 || msg->buttons.size() < 6) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                             "Joy message too small: axes=%zu buttons=%zu (need >=6)",
-                             msg->axes.size(), msg->buttons.size());
-        return;
-    }
-    for (size_t i = 0; i < 6; ++i) {
-        if (!std::isfinite(msg->axes[i])) {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                 "Joy axis %zu is not finite; ignoring message", i);
-            return;
-        }
-    }
     if (is_joy_control_){
         std::unique_lock<std::mutex> lock(cmd_mutex_);
-        last_cmd_time_ns_.store(
-            std::chrono::steady_clock::now().time_since_epoch().count(),
-            std::memory_order_relaxed);
         cmd_vel_[0] = std::clamp(msg->axes[4] * clip_cmd_[1], clip_cmd_[0], clip_cmd_[1]);
         cmd_vel_[1] = std::clamp(msg->axes[3] * clip_cmd_[3], clip_cmd_[2], clip_cmd_[3]);
             if (msg->axes[2] < 0) {
@@ -401,7 +378,6 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
     }
     if (msg->buttons[3] == 1 && msg->buttons[3] != last_button3_) {
         is_joy_control_.store(!is_joy_control_);
-        last_cmd_time_ns_.store(0, std::memory_order_relaxed);
         RCLCPP_INFO(this->get_logger(), "Controlled by %s", is_joy_control_.load() ? "joy" : "/cmd_vel");
     }
     if (supports_interrupt() || has_motion_policy() || has_latent_policy()) {
@@ -473,17 +449,8 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
 }
 
 void InferenceNode::subs_cmd_callback(const std::shared_ptr<geometry_msgs::msg::Twist> msg){
-    if (!std::isfinite(msg->linear.x) || !std::isfinite(msg->linear.y) ||
-        !std::isfinite(msg->angular.z)) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                             "Non-finite /cmd_vel ignored");
-        return;
-    }
     if(!is_joy_control_){
         std::unique_lock<std::mutex> lock(cmd_mutex_);
-        last_cmd_time_ns_.store(
-            std::chrono::steady_clock::now().time_since_epoch().count(),
-            std::memory_order_relaxed);
         cmd_vel_[0] = std::clamp(msg->linear.x, clip_cmd_[0], clip_cmd_[1]);
         cmd_vel_[1] = std::clamp(msg->linear.y, clip_cmd_[2], clip_cmd_[3]);
         cmd_vel_[2] = std::clamp(msg->angular.z, clip_cmd_[4], clip_cmd_[5]);
@@ -509,13 +476,6 @@ void InferenceNode::subs_joint_state_callback(const std::shared_ptr<sensor_msgs:
                         "Interrupt target message too small: got %zu, expected at least %zu",
                         msg->position.size(), interrupt_action_.size());
             return;
-        }
-        for (size_t i = 0; i < interrupt_action_.size(); ++i) {
-            if (!std::isfinite(msg->position[i])) {
-                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                     "Non-finite interrupt target at index %zu; ignoring", i);
-                return;
-            }
         }
         std::unique_lock<std::mutex> lock(interrupt_mutex_);
         for(size_t i = 0; i < interrupt_action_.size(); i++){

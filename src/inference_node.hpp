@@ -260,8 +260,6 @@ class InferenceNode : public rclcpp::Node {
 
     std::mutex act_mutex_, perception_mutex_, interrupt_mutex_, cmd_mutex_, mode_mutex_, control_mutex_, lb_switch_mutex_;
     std::vector<float> act_, last_act_, cmd_vel_, interrupt_action_, perception_obs_buffer_;
-    std::atomic<int64_t> last_cmd_time_ns_{0};
-    float cmd_timeout_s_ = 0.2f;
     std::vector<float> joint_pos_buffer_, joint_vel_buffer_, joint_torques_buffer_, quat_buffer_, ang_vel_buffer_;
     sensor_msgs::msg::JointState joint_state_msg_, action_msg_;
 

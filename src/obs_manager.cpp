@@ -212,14 +212,6 @@ void InferenceNode::get_gravity_b_obs(std::vector<float>& segment) {
 
 void InferenceNode::get_cmd_vel_obs(std::vector<float>& segment) {
     std::unique_lock<std::mutex> lock(cmd_mutex_);
-    const auto now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto last_ns = last_cmd_time_ns_.load(std::memory_order_relaxed);
-    const auto timeout_ns = static_cast<int64_t>(cmd_timeout_s_ * 1e9);
-    if (last_ns == 0 || now_ns - last_ns > timeout_ns) {
-        cmd_vel_[0] = 0.0f;
-        cmd_vel_[1] = 0.0f;
-        cmd_vel_[2] = 0.0f;
-    }
     segment[0] = cmd_vel_[0] * obs_scales_lin_vel_;
     segment[1] = cmd_vel_[1] * obs_scales_lin_vel_;
     segment[2] = cmd_vel_[2] * obs_scales_ang_vel_;

@@ -29,14 +29,22 @@ find_package(roboparty_motors REQUIRED)
 find_package(roboparty_imu REQUIRED)
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 REQUIRED)
+find_package(yaml-cpp QUIET)
 
-option(YAML_BUILD_SHARED_LIBS "Build shared library" OFF)
-option(YAML_CPP_BUILD_TESTS "Build tests" OFF)
-option(YAML_CPP_BUILD_TOOLS "Build tools" OFF)
 add_subdirectory(thirdparty)
 
+if(TARGET yaml-cpp::yaml-cpp)
+    set(YAML_CPP_TARGET yaml-cpp::yaml-cpp)
+elseif(TARGET yaml-cpp)
+    set(YAML_CPP_TARGET yaml-cpp)
+elseif(YAML_CPP_LIBRARIES)
+    set(YAML_CPP_TARGET ${YAML_CPP_LIBRARIES})
+else()
+    message(FATAL_ERROR "yaml-cpp not found and the bundled fallback failed to build")
+endif()
+
 set(PUBLIC_DEPENDENCIES
-    ${Boost_LIBRARIES} pthread Eigen3::Eigen fmt::fmt spdlog::spdlog ${ONNXRUNTIME_LIB_FILE} yaml-cpp)
+    ${Boost_LIBRARIES} pthread Eigen3::Eigen fmt::fmt spdlog::spdlog ${ONNXRUNTIME_LIB_FILE} ${YAML_CPP_TARGET})
 
 add_subdirectory(src)
 
